@@ -346,10 +346,8 @@ const BookingPage = () => {
         
       if (leadError) throw leadError;
 
-      const [hours, minutes] = selectedTime.split(':');
       // Create date objects using the selected time in the clinic's timezone
-      const startTimeStr = format(selectedDate, 'yyyy-MM-dd') + `T${hours}:${minutes}:00`;
-      const startTime = buildUTCFromClinicTime(startTimeStr, clinicTimezone);
+      const startTime = buildUTCFromClinicTime(selectedDate, selectedTime, clinicTimezone);
       
       const duration = selectedService?.duration || 60;
       const endTime = addDays(startTime, 0); // copy date
