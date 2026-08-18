@@ -86,11 +86,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 .from('organization_members')
                 .select(`
                     role,
-                    created_at,
+                    joined_at,
                     organizations (id, name, slug, subscription_status, plan_id, current_period_end, cancel_at_period_end, stripe_customer_id, settings, type)
                 `)
                 .eq('user_id', userId)
-                .order('created_at', { ascending: true }); // Prioritize oldest memberships
+                .order('joined_at', { ascending: true }); // Prioritize oldest memberships
 
             if (membershipsError) {
                 throw membershipsError;
