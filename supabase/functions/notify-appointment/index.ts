@@ -567,7 +567,7 @@ serve(async (req) => {
               phone: patPhone,
               organization_id: profileData.current_organization_id,
               patient_id: patientId,
-              template_id: 'confirmacion_cita',
+              template_id: (!patientId || sessionType === 'initial' || sessionType === 'primera_vez' || sessionType?.toLowerCase().includes('primera')) ? 'primera_cita' : 'confirmacion_cita',
               template_variables: variables
             })
           });
