@@ -319,6 +319,7 @@ serve(async (req) => {
       patientId,
       patientName,
       patientEmail,
+      patientPhone,
       psychologistId,
       startTime,
       endTime,
@@ -434,7 +435,7 @@ serve(async (req) => {
 
     let patEmail = patientEmail;
     let patName = patientName;
-    let patPhone = '';
+    let patPhone = patientPhone || '';
 
     if (patientId) {
       const { data: patientData } = await supabase

@@ -466,6 +466,7 @@ const BookingPage = () => {
           psychologistId: profile.id,
           patientName: patientInfo.name,
           patientEmail: patientInfo.email,
+          patientPhone: patientInfo.phone,
           startTime: startTime.toISOString(),
           endTime: endTime.toISOString(),
           sessionType: selectedService?.name || 'primera_vez',
