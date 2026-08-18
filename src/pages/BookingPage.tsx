@@ -489,7 +489,7 @@ const BookingPage = () => {
         profile_id: profile.id,
         type: 'appointment_created',
         title: 'Nueva Cita Agendada',
-        description: `${patientInfo.name} ha agendado una sesión el ${format(selectedDate!, "d 'de' MMMM", { locale: es })} a las ${selectedTime}.`,
+        description: `${patientInfo.name} ha agendado una sesión el ${format(typeof selectedDate === 'string' ? new Date(selectedDate) : selectedDate!, "d 'de' MMMM", { locale: es })} a las ${selectedTime}.`,
         organization_id: profile.current_organization_id,
       });
 
