@@ -38,7 +38,26 @@ const appointmentSchema = z.object({
     location: z.string().optional(),
     patientAge: z.union([z.string(), z.number()]).optional(),
     reasonForConsultation: z.string().optional(),
-    recurrenceWeeks: z.number().min(2, 'La recurrencia debe ser al menos 2 semanas').max(52, 'Máximo 52 semanas').optional()
+    recurrenceWeeks: z.number().min(2, 'La recurrencia debe ser al menos 2 semanas').max(52, 'Máximo 52 semanas').optional(),
+    modality: z.string().optional()
+}).superRefine((data, ctx) => {
+    if (data.modality === 'presencial') {
+        if (!data.location || data.location.trim() === '') {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'La ubicación o consultorio es obligatorio para citas presenciales',
+                path: ['location']
+            });
+        }
+    } else if (data.modality === 'online') {
+        if (!data.meetingPlatform || data.meetingPlatform.trim() === '') {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'La plataforma de videollamada es obligatoria para citas en línea',
+                path: ['meetingPlatform']
+            });
+        }
+    }
 });
 
 const APPOINTMENT_COLORS = [
@@ -1412,7 +1431,7 @@ const NewAppointmentDialog = ({
                             <>
                                 {/* Plataforma de videollamada */}
                                 <div className="space-y-2">
-                                    <Label htmlFor="platform">Plataforma de Videollamada (Opcional)</Label>
+                                    <Label htmlFor="platform">Plataforma de Videollamada</Label>
                                     <Select
                                         value={formData.meetingPlatform}
                                         onValueChange={(value) => !isReadOnly && setFormData({ ...formData, meetingPlatform: value })}
@@ -1426,7 +1445,7 @@ const NewAppointmentDialog = ({
                                             <SelectItem value="meet">Google Meet</SelectItem>
                                             <SelectItem value="zoom">Zoom</SelectItem>
                                             <SelectItem value="teams">Microsoft Teams</SelectItem>
-                                            <SelectItem value="other">Otra plataforma / Presencial</SelectItem>
+                                            <SelectItem value="other">Otra plataforma</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1480,7 +1499,7 @@ const NewAppointmentDialog = ({
                             </>
                         ) : (
                             <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                <Label htmlFor="location">Ubicación / Consultorio (Opcional)</Label>
+                                <Label htmlFor="location">Ubicación / Consultorio</Label>
                                 <div className="relative">
                                     <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                     <Input
