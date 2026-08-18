@@ -1357,76 +1357,6 @@ const NewAppointmentDialog = ({
                             </Select>
                         </div>
 
-                        {/* Recurrencia */}
-                        {!isEditing && (
-                            <div className="space-y-4 p-3 border rounded-lg bg-muted/20">
-                                <div className="flex items-center justify-between">
-                                    <div className="space-y-0.5">
-                                        <Label className="text-sm font-medium">Cita Recurrente</Label>
-                                        <p className="text-xs text-muted-foreground">Repetir esta cita semanalmente</p>
-                                    </div>
-                                    <Switch
-                                        checked={formData.isRecurring}
-                                        onCheckedChange={(checked) => !isReadOnly && setFormData({ ...formData, isRecurring: checked })}
-                                        disabled={isReadOnly}
-                                    />
-                                </div>
-                                {formData.isRecurring && (
-                                    <div className="flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                                        <div className="flex-1 space-y-2">
-                                            <Label htmlFor="weeks" className="text-xs">Número de semanas</Label>
-                                            <Input
-                                                id="weeks"
-                                                type="number"
-                                                min={2}
-                                                max={12}
-                                                value={formData.recurrenceWeeks}
-                                                onChange={(e) => !isReadOnly && setFormData({ ...formData, recurrenceWeeks: parseInt(e.target.value) || 2 })}
-                                                className="h-8"
-                                                disabled={isReadOnly}
-                                            />
-                                        </div>
-                                        <div className="flex-[2] pt-6">
-                                            <p className="text-[10px] text-muted-foreground italic">
-                                                Se crearán {formData.recurrenceWeeks} sesiones en total.
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Opción de editar serie */}
-                        {isEditing && editingAppointment?.recurrenceId && (
-                            <div className="flex items-center justify-between p-3 border rounded-lg bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800">
-                                <div className="space-y-0.5">
-                                    <div className="flex items-center gap-2">
-                                        <Repeat className="h-4 w-4 text-blue-600" />
-                                        <Label className="text-sm font-medium">Editar Serie</Label>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground">Aplicar cambios a todas las citas futuras</p>
-                                </div>
-                                <Switch
-                                    checked={formData.editSeries}
-                                    onCheckedChange={(checked) => !isReadOnly && setFormData({ ...formData, editSeries: checked })}
-                                    disabled={isReadOnly}
-                                />
-                            </div>
-                        )}
-
-                        {/* Tarifa */}
-                        <div className="space-y-2">
-                            <Label htmlFor="fee">Tarifa ($)</Label>
-                            <Input
-                                id="fee"
-                                type="number"
-                                placeholder="80"
-                                value={formData.fee}
-                                onChange={(e) => !isReadOnly && setFormData({ ...formData, fee: e.target.value })}
-                                disabled={isSubmitting || isReadOnly}
-                            />
-                        </div>
-
                         {formData.modality === 'online' ? (
                             <>
                                 {/* Plataforma de videollamada */}
@@ -1516,6 +1446,76 @@ const NewAppointmentDialog = ({
                                 </p>
                             </div>
                         )}
+
+                        {/* Recurrencia */}
+                        {!isEditing && (
+                            <div className="space-y-4 p-3 border rounded-lg bg-muted/20">
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-sm font-medium">Cita Recurrente</Label>
+                                        <p className="text-xs text-muted-foreground">Repetir esta cita semanalmente</p>
+                                    </div>
+                                    <Switch
+                                        checked={formData.isRecurring}
+                                        onCheckedChange={(checked) => !isReadOnly && setFormData({ ...formData, isRecurring: checked })}
+                                        disabled={isReadOnly}
+                                    />
+                                </div>
+                                {formData.isRecurring && (
+                                    <div className="flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                                        <div className="flex-1 space-y-2">
+                                            <Label htmlFor="weeks" className="text-xs">Número de semanas</Label>
+                                            <Input
+                                                id="weeks"
+                                                type="number"
+                                                min={2}
+                                                max={12}
+                                                value={formData.recurrenceWeeks}
+                                                onChange={(e) => !isReadOnly && setFormData({ ...formData, recurrenceWeeks: parseInt(e.target.value) || 2 })}
+                                                className="h-8"
+                                                disabled={isReadOnly}
+                                            />
+                                        </div>
+                                        <div className="flex-[2] pt-6">
+                                            <p className="text-[10px] text-muted-foreground italic">
+                                                Se crearán {formData.recurrenceWeeks} sesiones en total.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Opción de editar serie */}
+                        {isEditing && editingAppointment?.recurrenceId && (
+                            <div className="flex items-center justify-between p-3 border rounded-lg bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800">
+                                <div className="space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                        <Repeat className="h-4 w-4 text-blue-600" />
+                                        <Label className="text-sm font-medium">Editar Serie</Label>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">Aplicar cambios a todas las citas futuras</p>
+                                </div>
+                                <Switch
+                                    checked={formData.editSeries}
+                                    onCheckedChange={(checked) => !isReadOnly && setFormData({ ...formData, editSeries: checked })}
+                                    disabled={isReadOnly}
+                                />
+                            </div>
+                        )}
+
+                        {/* Tarifa */}
+                        <div className="space-y-2">
+                            <Label htmlFor="fee">Tarifa ($)</Label>
+                            <Input
+                                id="fee"
+                                type="number"
+                                placeholder="80"
+                                value={formData.fee}
+                                onChange={(e) => !isReadOnly && setFormData({ ...formData, fee: e.target.value })}
+                                disabled={isSubmitting || isReadOnly}
+                            />
+                        </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
