@@ -82,13 +82,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setProfile(profileData);
 
             // 2. Fetch all organizations where user is a member
-            const { data: memberships } = await supabase
+            const { data: memberships, error: membershipsError } = await supabase
                 .from('organization_members')
                 .select(`
                     role,
+                    created_at,
                     organizations (id, name, slug, subscription_status, plan_id, current_period_end, cancel_at_period_end, stripe_customer_id, settings, type)
                 `)
-                .eq('user_id', userId);
+                .eq('user_id', userId)
+                .order('created_at', { ascending: true }); // Prioritize oldest memberships
+
+            if (membershipsError) {
+                throw membershipsError;
+            }
 
             if (memberships && memberships.length > 0) {
                 const orgs = memberships.map(m => {
@@ -101,6 +107,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 
                 setAvailableOrganizations(orgs);
 
+                // Default to the current_organization_id, OR the OLDEST organization (which is orgs[0] due to the order clause)
                 const currentOrg = orgs.find(o => o.id === profileData?.current_organization_id) || orgs[0];
                 if (currentOrg) {
                     // 3. Fetch member count for the current organization
@@ -121,31 +128,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 } else {
                     setOrganization(null);
                 }
-            } else if (!isRetry) {
-                // Auto-create a default organization for legacy users or if missing
-                const fullName = profileData?.full_name || 'Usuario';
-                const orgName = `Consultorio de ${fullName}`;
-                const orgSlug = `org-${userId.slice(0, 8)}-${Date.now().toString().slice(-4)}`;
-                
-                const { data: org, error: orgErr } = await supabase.rpc('create_personal_organization', {
-                    p_name: orgName,
-                    p_slug: orgSlug,
-                    p_user_id: userId
-                });
-
-                if (org && !orgErr) {
-                    // Recursive call to load the newly created org properly
-                    await fetchOrganization(userId, true);
-                    return;
-                } else {
-                    console.error('Failed to auto-create organization:', orgErr);
-                    setAvailableOrganizations([]);
-                    setOrganization(null);
-                }
             } else {
-                console.warn('Organization auto-created but not visible yet in memberships query.');
-                setAvailableOrganizations([]);
+                // We no longer auto-create organizations on fetch to prevent infinite loop bugs on RLS delays.
+                // Organizations are now only created during explicit sign up or by user action.
+                console.warn('No organizations found for user. Awaiting explicit creation or invites.');
                 setOrganization(null);
+                setAvailableOrganizations([]);
             }
         } catch (err: unknown) {
             const error = err as Error;
@@ -223,25 +211,36 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         if (data.user && !error) {
-            // 1. Create a default organization for the new user
-            const orgName = `Consultorio de ${fullName}`;
-            const orgSlug = `org-${data.user.id.slice(0, 8)}-${Date.now().toString().slice(-4)}`;
-            
-            const { data: org, error: orgErr } = await supabase.rpc('create_personal_organization', {
-                p_name: orgName,
-                p_slug: orgSlug,
-                p_user_id: data.user.id
-            });
+            // Anti-duplication: Check if user already has an organization
+            const { count } = await supabase
+                .from('organization_members')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', data.user.id);
 
-            if (org && !orgErr) {
-                // The RPC handles adding the member and updating the profile.
+            if (count && count > 0) {
+                // User already exists and has an org. Do not create another one.
                 await fetchOrganization(data.user.id);
             } else {
-                // Fallback: sync profile without org if org creation fails
-                await supabase.from('profiles').upsert({
-                    id: data.user.id,
-                    full_name: fullName,
-                }, { onConflict: 'id' });
+                // 1. Create a default organization for the new user
+                const orgName = `Consultorio de ${fullName}`;
+                const orgSlug = `org-${data.user.id.slice(0, 8)}-${Date.now().toString().slice(-4)}`;
+                
+                const { data: org, error: orgErr } = await supabase.rpc('create_personal_organization', {
+                    p_name: orgName,
+                    p_slug: orgSlug,
+                    p_user_id: data.user.id
+                });
+
+                if (org && !orgErr) {
+                    // The RPC handles adding the member and updating the profile.
+                    await fetchOrganization(data.user.id);
+                } else {
+                    // Fallback: sync profile without org if org creation fails
+                    await supabase.from('profiles').upsert({
+                        id: data.user.id,
+                        full_name: fullName,
+                    }, { onConflict: 'id' });
+                }
             }
 
             // 2. Handle referral attribution
