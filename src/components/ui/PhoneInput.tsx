@@ -71,8 +71,18 @@ export function parsePhoneNumber(rawPhone?: string): { dialCode: string; localDi
 }
 
 // Format digits nicely on display (e.g., "55 1234 5678" or "612 345 678")
-export function formatLocalDisplay(digits: string): string {
+export function formatLocalDisplay(digits: string, expectedLength: number = 10): string {
   const clean = digits.replace(/\D/g, '');
+  if (clean.length === 0) return '';
+  
+  // Format for 10-digit numbers (SaaS industry standard: (XXX) XXX-XXXX)
+  if (expectedLength === 10) {
+    if (clean.length <= 3) return `(${clean}`;
+    if (clean.length <= 6) return `(${clean.slice(0, 3)}) ${clean.slice(3)}`;
+    return `(${clean.slice(0, 3)}) ${clean.slice(3, 6)}-${clean.slice(6, 10)}`;
+  }
+  
+  // Generic fallback for other lengths
   if (clean.length <= 2) return clean;
   if (clean.length <= 6) return `${clean.slice(0, 2)} ${clean.slice(2)}`;
   if (clean.length <= 9) return `${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(6)}`;
@@ -162,7 +172,7 @@ export const PhoneInput: React.FC<PhoneInputProps> = ({
           id={id}
           type="tel"
           disabled={disabled}
-          value={formatLocalDisplay(localDigits)}
+          value={formatLocalDisplay(localDigits, selectedCountry.expectedDigits)}
           onChange={handleInputChange}
           placeholder={placeholder}
           className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-mono font-bold tracking-wide outline-none placeholder:text-muted-foreground/35 placeholder:font-sans text-foreground"

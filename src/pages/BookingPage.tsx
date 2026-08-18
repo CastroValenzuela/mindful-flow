@@ -728,8 +728,8 @@ const BookingPage = () => {
                       placeholder="ana@ejemplo.com"
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="phone">Teléfono / WhatsApp *</Label>
                       <PhoneInput 
                         id="phone" 
@@ -737,14 +737,14 @@ const BookingPage = () => {
                         onChange={(fullFormatted) => setPatientInfo({ ...patientInfo, phone: fullFormatted })}
                       />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 sm:col-span-1">
                       <Label htmlFor="age">Edad</Label>
                       <Input 
                         id="age" 
                         type="number" 
                         value={patientInfo.age} 
                         onChange={e => setPatientInfo({...patientInfo, age: e.target.value})}
-                        placeholder="Ej. 25"
+                        placeholder="Ej. 35"
                       />
                     </div>
                   </div>
