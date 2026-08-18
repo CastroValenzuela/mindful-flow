@@ -10,6 +10,7 @@ import { getVisitorTimezone, getTimezoneFriendlyLabel, buildUTCFromClinicTime } 
 import { Loader2, ArrowLeft, Clock, Calendar as CalendarIcon, User, CheckCircle2, LayoutGrid, DollarSign, BookOpen, ShieldCheck, Video, MapPin, Globe } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { logActivity } from '@/lib/activityLogger';
@@ -82,6 +83,8 @@ const BookingPage = () => {
   });
   const [sessionType, setSessionType] = useState('Primera vez');
   const [modality, setModality] = useState('Videollamada');
+  const [meetingPlatform, setMeetingPlatform] = useState('');
+  const [location, setLocation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // 1. Fetch Specialist Profile
@@ -343,9 +346,14 @@ const BookingPage = () => {
         
       if (leadError) throw leadError;
 
-      const startTime = buildUTCFromClinicTime(selectedDate, selectedTime, clinicTimezone);
+      const [hours, minutes] = selectedTime.split(':');
+      // Create date objects using the selected time in the clinic's timezone
+      const startTimeStr = format(selectedDate, 'yyyy-MM-dd') + `T${hours}:${minutes}:00`;
+      const startTime = buildUTCFromClinicTime(startTimeStr, clinicTimezone);
+      
       const duration = selectedService?.duration || 60;
-      const endTime = new Date(startTime.getTime() + duration * 60 * 1000);
+      const endTime = addDays(startTime, 0); // copy date
+      endTime.setMinutes(endTime.getMinutes() + duration);
 
       // Sincronizar hacia Google Calendar a través de la Edge Function (y generar Meet si aplica)
       let finalMeetLink = null;
@@ -353,30 +361,44 @@ const BookingPage = () => {
       const appointmentId = crypto.randomUUID();
 
       if (modality === 'Videollamada') {
-        finalPlatform = 'meet';
-        try {
-          const { data, error: syncErr } = await supabase.functions.invoke('google-calendar-sync', {
+        finalPlatform = meetingPlatform;
+        if (finalPlatform === 'meet') {
+          try {
+            const { data, error: syncErr } = await supabase.functions.invoke('google-calendar-sync', {
+              body: {
+                slug: profile.slug,
+                createMeet: true,
+                event: {
+                  summary: `Cita Saudade: ${patientInfo.name}`,
+                  description: `Teléfono: ${patientInfo.phone}\nCorreo: ${patientInfo.email}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nAgendada desde el Portal Público.`,
+                  start: { dateTime: startTime.toISOString() },
+                  end: { dateTime: endTime.toISOString() },
+                }
+              }
+            });
+            if (!syncErr && data?.meetLink) {
+              finalMeetLink = data.meetLink;
+            }
+          } catch (err) {
+            console.error("Error sincronizando y creando Meet:", err);
+          }
+        } else {
+          // If not 'meet', sync to calendar without generating meet link
+          supabase.functions.invoke('google-calendar-sync', {
             body: {
               slug: profile.slug,
-              createMeet: true,
               event: {
-                summary: `Cita Saudade: ${patientInfo.name}`,
+                summary: `Cita Saudade: ${patientInfo.name} (${finalPlatform})`,
                 description: `Teléfono: ${patientInfo.phone}\nCorreo: ${patientInfo.email}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nAgendada desde el Portal Público.`,
                 start: { dateTime: startTime.toISOString() },
                 end: { dateTime: endTime.toISOString() },
               }
             }
-          });
-          if (!syncErr && data?.meetLink) {
-            finalMeetLink = data.meetLink;
-          }
-        } catch (err) {
-          console.error("Error sincronizando y creando Meet:", err);
+          }).catch(err => console.error('Error sincronizando agenda:', err));
         }
 
         // Si no se generó enlace de Meet (por ejemplo, Google Calendar no conectado), usar Saudade integrado
-        if (!finalMeetLink) {
-          finalPlatform = 'saudade';
+        if (finalPlatform === 'saudade') {
           finalMeetLink = `${window.location.origin}/join/${appointmentId}`;
         }
       } else {
@@ -389,7 +411,7 @@ const BookingPage = () => {
               description: `Teléfono: ${patientInfo.phone}\nCorreo: ${patientInfo.email}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nAgendada desde el Portal Público.`,
               start: { dateTime: startTime.toISOString() },
               end: { dateTime: endTime.toISOString() },
-              location: 'Consultorio físico (Dirección por confirmar)',
+              location: location,
             }
           }
         }).catch(err => console.error('Error sincronizando agenda:', err));
@@ -426,14 +448,14 @@ const BookingPage = () => {
           payment_status: 'pending',
           meeting_platform: finalPlatform,
           meeting_link: finalMeetLink,
-          notes: `Reservado desde Portal Público.\nServicio: ${selectedService?.name || 'No especificado'}\nEmail: ${patientInfo.email}\nTeléfono: ${patientInfo.phone}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nModalidad: ${modality}`,
+          notes: `Reservado desde Portal Público.\nServicio: ${selectedService?.name || 'No especificado'}\nEmail: ${patientInfo.email}\nTeléfono: ${patientInfo.phone}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nModalidad: ${modality}\nPlataforma/Ubicación: ${modality === 'Videollamada' ? finalPlatform : location}`,
           organization_id: profile.current_organization_id,
           patient_age: patientInfo.age ? parseInt(patientInfo.age) : null,
           reason_for_consultation: patientInfo.reason || null,
           service_id: selectedService?.id || null,
           booking_answers: Object.keys(bookingAnswers).length > 0 ? bookingAnswers : null,
           modality: modality === 'Videollamada' ? 'online' : 'presencial',
-          location: modality === 'Videollamada' ? null : 'Consultorio físico (Dirección por confirmar)',
+          location: modality === 'Videollamada' ? null : location,
           commission_percentage: finalCommission,
           reschedule_policy_hours: finalReschedulePolicy,
         });
@@ -749,7 +771,7 @@ const BookingPage = () => {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2 mt-4">
                     <Label>Modalidad de la sesión *</Label>
                     <div className="grid grid-cols-2 gap-3">
                       <button
@@ -758,8 +780,8 @@ const BookingPage = () => {
                         className={cn(
                           "flex items-center justify-center gap-2 h-11 rounded-xl border text-sm font-medium transition-all shadow-sm",
                           modality === 'Videollamada'
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-white/40 border-border/40 text-muted-foreground hover:border-primary/30 hover:bg-primary/5"
+                            ? "border-emerald-500 bg-emerald-500/10 text-emerald-700"
+                            : "border-border/50 bg-white/50 text-muted-foreground hover:bg-white"
                         )}
                       >
                         <Video className="w-4 h-4" />
@@ -771,20 +793,50 @@ const BookingPage = () => {
                         className={cn(
                           "flex items-center justify-center gap-2 h-11 rounded-xl border text-sm font-medium transition-all shadow-sm",
                           modality === 'Presencial'
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-white/40 border-border/40 text-muted-foreground hover:border-primary/30 hover:bg-primary/5"
+                            ? "border-emerald-500 bg-emerald-500/10 text-emerald-700"
+                            : "border-border/50 bg-white/50 text-muted-foreground hover:bg-white"
                         )}
                       >
                         <MapPin className="w-4 h-4" />
                         Presencial
                       </button>
                     </div>
-                    {modality === 'Presencial' && (
-                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                        La dirección física se te enviará automáticamente en la confirmación.
-                      </p>
-                    )}
+                  </div>
+
+                  {modality === 'Videollamada' && (
+                    <div className="space-y-2 animate-fade-in mt-4">
+                      <Label htmlFor="platform">Plataforma de Videollamada *</Label>
+                      <Select 
+                        value={meetingPlatform} 
+                        onValueChange={setMeetingPlatform} 
+                        required
+                      >
+                        <SelectTrigger className="bg-card">
+                          <SelectValue placeholder="Selecciona una plataforma" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="saudade">Consultorio Virtual Saudade</SelectItem>
+                          <SelectItem value="meet">Google Meet</SelectItem>
+                          <SelectItem value="zoom">Zoom</SelectItem>
+                          <SelectItem value="whatsapp">WhatsApp Video</SelectItem>
+                          <SelectItem value="otra">Otra plataforma</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {modality === 'Presencial' && (
+                    <div className="space-y-2 animate-fade-in mt-4">
+                      <Label htmlFor="location">Ubicación / Consultorio *</Label>
+                      <Input 
+                        id="location" 
+                        required 
+                        value={location} 
+                        onChange={e => setLocation(e.target.value)}
+                        placeholder="Ej. Consultorio Norte, Calle Juárez #123"
+                      />
+                    </div>
+                  )}
                   </div>
 
                   <div className="space-y-2">
