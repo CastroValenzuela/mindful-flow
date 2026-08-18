@@ -96,7 +96,7 @@ export const PhoneInput: React.FC<PhoneInputProps> = ({
   disabled = false,
   className,
   id,
-  placeholder = '55 1234 5678',
+  placeholder = '(XXX) XXX-XXXX',
 }) => {
   const [selectedDialCode, setSelectedDialCode] = useState<string>('+52');
   const [localDigits, setLocalDigits] = useState<string>('');
