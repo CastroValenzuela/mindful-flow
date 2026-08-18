@@ -45,7 +45,10 @@ export default function SuperAdmin() {
     if (!profile) return;
     
     // Optimistic check: Ensure user is superadmin
-    if (!profile.is_superadmin) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userEmail = userData?.user?.email;
+
+    if (!profile.is_superadmin || userEmail !== 'saudade.app.mx@gmail.com') {
       toast.error('Acceso denegado. Se requiere nivel de SuperAdministrador.');
       setLoading(false);
       return;
@@ -68,7 +71,10 @@ export default function SuperAdmin() {
     org.owner_email?.toLowerCase().includes(searchTerm.toLowerCase())
   ) || [];
 
-  if (!profile?.is_superadmin) {
+  const { user } = useAuth();
+  const isStrictSuperAdmin = profile?.is_superadmin && user?.email === 'saudade.app.mx@gmail.com';
+
+  if (!isStrictSuperAdmin) {
     return (
       <div className="flex min-h-screen bg-slate-50 items-center justify-center">
         <div className="text-center p-8 bg-white rounded-xl border shadow-sm max-w-md">

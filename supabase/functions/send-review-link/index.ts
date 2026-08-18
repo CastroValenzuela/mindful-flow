@@ -66,6 +66,23 @@ serve(async (req) => {
       })
     }
 
+    // 1.5 Count completed appointments for this patient
+    const { count: completedCount, error: countError } = await supabaseAdmin
+      .from('appointments')
+      .select('*', { count: 'exact', head: true })
+      .eq('patient_id', appointment.patient_id)
+      .eq('status', 'completed')
+
+    if (countError) throw countError;
+
+    // Only send if it's EXACTLY the 5th completed session
+    if (completedCount !== 5) {
+      return new Response(JSON.stringify({ message: 'Patient has not reached exactly 5 completed appointments. No survey sent.', completedCount }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      })
+    }
+
     // 2. Generate or retrieve Review Request token
     const { data: existingRequest } = await supabaseAdmin
       .from('review_requests')
@@ -116,13 +133,34 @@ serve(async (req) => {
     const therapistName = appointment.profiles?.full_name?.split(' ')[0] || 'tu terapeuta'
     const patientName = appointment.patients?.first_name || 'paciente'
 
-    // Text payload (using freeform text for now, ideally should use a Meta approved template 'review_request')
-    const textPayload = {
+    // Template payload for feedback_survey_2
+    const templatePayload = {
       messaging_product: "whatsapp",
       to: cleanPhoneTo,
-      type: "text",
-      text: { 
-        body: `¡Hola ${patientName}! ✨ ¿Qué tal te pareció tu sesión de hoy con ${therapistName}? Ayúdanos a mejorar dejándonos una reseña rápida aquí (solo toma 1 minuto y puedes hacerlo de forma anónima): ${reviewLink}` 
+      type: "template",
+      template: {
+        name: "feedback_survey_2",
+        language: { code: "en_US" },
+        components: [
+          {
+            type: "body",
+            parameters: [
+              { type: "text", text: patientName },
+              { type: "text", text: `Psic. ${therapistName}` }
+            ]
+          },
+          {
+            type: "button",
+            sub_type: "url",
+            index: "0",
+            parameters: [
+              {
+                type: "text",
+                text: token // Se inyectará al final de la URL en Meta
+              }
+            ]
+          }
+        ]
       }
     }
 
@@ -132,7 +170,7 @@ serve(async (req) => {
         "Authorization": `Bearer ${metaAccessToken}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(textPayload)
+      body: JSON.stringify(templatePayload)
     })
 
     const metaData = await metaResponse.json()

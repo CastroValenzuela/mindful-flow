@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '@/components/Layout';
-import MetricCard from '@/components/dashboard/MetricCard';
 import TodayAgenda from '@/components/dashboard/TodayAgenda';
 import RevenueChart from '@/components/dashboard/RevenueChart';
 import ActivityHeatmap from '@/components/dashboard/ActivityHeatmap';
@@ -18,8 +17,6 @@ import {
   Plus,
   Pencil
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -269,196 +266,180 @@ const Dashboard = () => {
 
   return (
     <Layout>
-      <div className="space-y-8">
-        {/* Header */}
-        <div id="tour-dashboard-header" className="flex flex-col gap-1 sm:gap-2">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            {getGreeting()},{' '}
-            <span className="text-gradient-zen">
-              {user?.user_metadata?.full_name || 'Doctor'}
-            </span>
-          </h1>
-          <p className="text-muted-foreground">
-            Aquí está el resumen de su práctica clínica
-          </p>
-        </div>
+      <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6">
+        
+        {/* 1. Header Minimalista */}
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+              {getGreeting()}, {user?.user_metadata?.full_name?.split(' ')[0] || 'Doctor'}
+            </h1>
+            <p className="text-sm font-medium text-muted-foreground mt-1">
+              Resumen general de tu práctica clínica.
+            </p>
+          </div>
+        </header>
 
-        {/* Onboarding modal — auto-hides when profile + consent are done */}
         <OnboardingModal />
 
-        {/* Quick Stats */}
-        <div id="tour-dashboard-kpis" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard
-            title="Ingresos del Mes"
-            value={`$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`}
-            loading={loading}
-            icon={DollarSign}
-            trend={{ value: revenueGrowth, isPositive: revenueGrowth >= 0 }}
-            variant="zen"
+        {/* 2. Bento Box Grid Principal */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 auto-rows-min gap-4">
+          
+          {/* --- ROW 1: 4 KPIs (1x1 each) --- */}
+          {/* KPI: Ingresos (1x1) */}
+          <div 
+            className="col-span-1 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer" 
             onClick={() => navigate('/finance')}
-          />
-          <MetricCard
-            title="Pacientes Activos"
-            value={stats?.activePatients ?? 0}
-            subtitle={`+${stats?.newPatientsThisMonth ?? 0} nuevos este mes`}
-            loading={loading}
-            icon={Users}
-            variant="default"
-            onClick={() => navigate('/patients')}
-          />
-          <MetricCard
-            title="Sesiones Completadas"
-            value={stats?.completedSessions ?? 0}
-            subtitle={`${stats?.completedSessions ?? 0} de ${stats?.totalMonthAppointmentsCount ?? 0} agendadas`}
-            loading={loading}
-            icon={TrendingUp}
-            trend={{ value: Math.round(((stats?.completedSessions ?? 0) / sessionGoal) * 100), isPositive: true }}
-            variant="success"
-            onClick={() => navigate('/agenda')}
-          />
-          <MetricCard
-            title="Citas Hoy"
-            value={stats?.todayAppointmentsCount ?? 0}
-            subtitle={`${stats?.confirmedToday ?? 0} confirmadas, ${stats?.pendingToday ?? 0} pendientes`}
-            loading={loading}
-            icon={Calendar}
-            variant="default"
-            onClick={() => navigate('/agenda')}
-          />
-        </div>
+            role="button" 
+            tabIndex={0}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-2xl">
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-full">
+                {revenueGrowth >= 0 ? '+' : ''}{revenueGrowth}%
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-slate-500 mb-1">Ingresos del Mes</p>
+            <h3 className="text-3xl font-extrabold tracking-tight">
+               {loading ? <Skeleton className="h-8 w-24" /> : `$${(stats?.monthlyRevenue ?? 0).toLocaleString()}`}
+            </h3>
+          </div>
 
-        {/* Main Grid */}
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Columna izquierda */}
-          <div className="lg:col-span-2 space-y-6">
-            <div id="tour-dashboard-agenda">
+          {/* KPI: Pacientes (1x1) */}
+          <div 
+            className="col-span-1 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer" 
+            onClick={() => navigate('/patients')}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-2xl">
+                <Users className="w-5 h-5" />
+              </div>
+            </div>
+            <p className="text-sm font-semibold text-slate-500 mb-1">Pacientes Activos</p>
+            <h3 className="text-3xl font-extrabold tracking-tight">
+               {loading ? <Skeleton className="h-8 w-16" /> : stats?.activePatients ?? 0}
+            </h3>
+            <p className="text-xs text-muted-foreground mt-2 font-medium">+{stats?.newPatientsThisMonth ?? 0} nuevos este mes</p>
+          </div>
+
+          {/* Progreso de Metas (1x1) */}
+          <div className="col-span-1 rounded-3xl bg-slate-900 text-white p-6 shadow-md relative overflow-hidden group flex flex-col justify-between">
+             <div className="absolute top-4 right-4 z-10">
+               <button onClick={() => { setGoalInput(sessionGoal.toString()); setIsGoalDialogOpen(true); }} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" aria-label="Editar Meta">
+                  <Pencil className="w-4 h-4 text-white" />
+               </button>
+             </div>
+             <div className="relative z-10">
+               <h3 className="font-bold mb-4 opacity-90">Meta Mensual</h3>
+               <div className="flex items-end gap-2 mb-3">
+                 <span className="text-4xl font-black">{stats?.completedSessions ?? 0}</span>
+                 <span className="text-sm font-medium opacity-70 mb-1">/ {sessionGoal}</span>
+               </div>
+               <Progress value={((stats?.completedSessions ?? 0) / sessionGoal) * 100} className="h-2.5 bg-white/20" />
+               <p className="text-xs mt-3 font-medium opacity-80">
+                 {Math.max(0, sessionGoal - (stats?.completedSessions ?? 0))} sesiones restantes
+               </p>
+             </div>
+          </div>
+
+          {/* Pagos Pendientes (1x1) */}
+          <div 
+            className="col-span-1 rounded-3xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-900/50 p-6 shadow-sm cursor-pointer hover:shadow-md hover:-translate-y-1 transition-all flex flex-col justify-between" 
+            onClick={() => navigate('/finance')}
+            role="button"
+            tabIndex={0}
+          >
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-amber-100 dark:bg-amber-900/50 text-amber-600 rounded-2xl">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+              </div>
+              <p className="text-sm font-semibold text-amber-700/80 dark:text-amber-500/80 mb-1">Por Cobrar</p>
+            </div>
+            <h3 className="text-3xl font-extrabold tracking-tight text-amber-900 dark:text-amber-400">
+               {loading ? <Skeleton className="h-8 w-20" /> : `$${(stats?.pendingPayments ?? 0).toLocaleString()}`}
+            </h3>
+          </div>
+
+
+          {/* --- ROW 2: 2 Blocks (2x1 each) --- */}
+          
+          {/* Gráfico de Ingresos (Span 2x1) */}
+          <div className="col-span-1 md:col-span-2 lg:col-span-2 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm flex flex-col justify-between min-h-[300px]">
+            <div className="mb-4">
+              <h3 className="font-bold text-slate-900 dark:text-white">Crecimiento Financiero</h3>
+              <p className="text-xs text-muted-foreground font-medium">Últimos 6 meses</p>
+            </div>
+            <div className="flex-1 h-[200px]">
+              <RevenueChart data={chartData} loading={loading} minimal={true} />
+            </div>
+          </div>
+
+          {/* Agenda de Hoy (Span 2x1) */}
+          <div className="col-span-1 md:col-span-2 lg:col-span-2 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm flex flex-col min-h-[300px] overflow-hidden">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white">Agenda de Hoy</h3>
+                <p className="text-xs text-muted-foreground font-medium">
+                  {stats?.confirmedToday ?? 0} confirmadas, {stats?.pendingToday ?? 0} pendientes
+                </p>
+              </div>
+              <Button variant="outline" className="rounded-full h-9 px-4 font-bold text-xs" onClick={() => navigate('/agenda')}>
+                Ver Todo
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
               <TodayAgenda appointments={todayAppts} />
             </div>
-            <RevenueChart data={chartData} loading={loading} />
-            <ActivityHeatmap appointments={allAppointments} loading={loading} />
           </div>
 
-          {/* Columna derecha */}
-          <div className="space-y-6">
-            {/* Pagos pendientes */}
-            <div id="tour-dashboard-pending-payments">
-              <Card variant="glass" className="animate-fade-in border-warning/15 dark:border-warning/5 bg-warning/5 backdrop-blur-xl">
-                <CardContent className="flex items-center gap-4 p-5">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-warning/8">
-                    <AlertCircle className="h-6 w-6 text-warning" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-slate-600 dark:text-slate-300">Pagos Pendientes</p>
-                    <div className="text-2xl font-bold flex items-center h-8">
-                      {loading ? <Skeleton className="h-6 w-24" /> : `$${(stats?.pendingPayments ?? 0).toLocaleString()}`}
-                    </div>
-                  </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="bg-white/50 backdrop-blur-sm hover:bg-white font-semibold"
-                    onClick={() => navigate('/finance')}
-                  >
-                    Ver detalles
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
 
-            {/* Progreso de sesiones con meta editable */}
-            <div id="tour-dashboard-session-goal">
-              <Card variant="glass" className="animate-fade-in border-white/20 dark:border-white/5">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-slate-700 dark:text-slate-200">Sesiones del Mes</CardTitle>
-                </CardHeader>
-                <CardContent>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-2xl font-bold flex items-center h-8 gap-1.5">
-                    {loading ? <Skeleton className="h-6 w-12" /> : (
-                      <>
-                        {stats?.completedSessions ?? 0}
-                        <span className="text-sm font-normal text-muted-foreground">de {stats?.totalMonthAppointmentsCount ?? 0} agendadas</span>
-                      </>
-                    )}
+          {/* --- ROW 3: Notas Recientes (Span 4x1) --- */}
+          <div className="col-span-1 md:col-span-2 lg:col-span-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm">
+             <div className="flex items-center justify-between mb-5">
+               <h3 className="font-bold text-slate-900 dark:text-white">Últimas Notas Clínicas</h3>
+               <Button variant="ghost" className="rounded-full h-8 text-xs font-bold text-primary hover:bg-primary/5" onClick={() => navigate('/notes')}>
+                 <Plus className="w-3 h-3 mr-1" /> Redactar Nota
+               </Button>
+             </div>
+             
+             {loading ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">Cargando...</div>
+             ) : recentNotes.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6">
+                  <div className="h-10 w-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-2">
+                    <FileText className="h-5 w-5 text-slate-400" />
                   </div>
-                  <Badge 
-                    variant="zen" 
-                    title="Haz clic para cambiar la meta mensual"
-                    className="bg-primary/10 hover:bg-primary/20 text-primary border-none cursor-pointer transition-all duration-200 hover:scale-105 shadow-xs gap-1.5 px-3 py-1 font-bold group"
-                    onClick={() => {
-                      setGoalInput(sessionGoal.toString());
-                      setIsGoalDialogOpen(true);
-                    }}
-                  >
-                    <span>Meta: {sessionGoal}</span>
-                    <Pencil className="h-3 w-3 opacity-60 group-hover:opacity-100 transition-opacity" />
-                  </Badge>
+                  <p className="text-sm text-slate-500">No hay notas recientes</p>
                 </div>
-                <Progress
-                  value={((stats?.completedSessions ?? 0) / sessionGoal) * 100}
-                  className="h-2 bg-slate-100 dark:bg-slate-800"
-                />
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-3 font-medium">
-                  {Math.max(0, sessionGoal - (stats?.completedSessions ?? 0))} sesiones restantes para la meta
-                </p>
-              </CardContent>
-            </Card>
+             ) : (
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {recentNotes.slice(0, 3).map((note) => (
+                    <div key={note.id} onClick={() => navigate(`/notes?noteId=${note.id}`)} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-100 hover:shadow-sm transition-all">
+                       <div className="flex justify-between items-start mb-3">
+                         <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{note.patientName}</span>
+                         <span className="text-[10px] font-bold px-2 py-1 bg-white dark:bg-slate-700 rounded-md text-slate-500 dark:text-slate-300 shadow-sm">{note.format}</span>
+                       </div>
+                       <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{note.content || "Sin contenido preliminar..."}</p>
+                    </div>
+                  ))}
+               </div>
+             )}
+          </div>
+          
+          {/* --- ROW 4: Actividad / Heatmap (Span Completo) --- */}
+          <div className="col-span-1 md:col-span-2 lg:col-span-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm overflow-hidden">
+            <h3 className="font-bold text-slate-900 dark:text-white mb-4">Mapa de Actividad Clínica</h3>
+            <div className="w-full overflow-x-auto">
+               <ActivityHeatmap appointments={allAppointments} loading={loading} />
+            </div>
           </div>
 
-            {/* Notas recientes */}
-            <Card variant="glass" className="animate-fade-in border-white/20 dark:border-white/5">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-slate-800 dark:text-slate-100">Últimas Notas</CardTitle>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="gap-1.5 text-primary hover:text-primary/80 hover:bg-primary/10 transition-all duration-300 group/btn font-bold"
-                  onClick={() => navigate('/notes')}
-                >
-                  Ver todas <ArrowRight className="h-4 w-4 transition-transform group-hover/btn:translate-x-1" />
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {loading ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">Cargando...</p>
-                ) : recentNotes.length === 0 ? (
-                  <div className="flex flex-col items-center py-8 text-center">
-                    <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
-                      <FileText className="h-6 w-6 text-muted-foreground" />
-                    </div>
-                    <p className="text-slate-500 text-sm mb-4">No hay notas recientes</p>
-                    <Button variant="outline" size="sm" className="gap-1.5 font-bold" onClick={() => navigate('/notes')}>
-                      <Plus className="h-4 w-4" /> Crear nueva nota
-                    </Button>
-                  </div>
-                ) : (
-                  recentNotes.map((note, i) => (
-                    <div
-                      key={note.id}
-                      onClick={() => navigate(`/notes?noteId=${note.id}`)}
-                      className="group rounded-xl border border-white/20 dark:border-white/5 bg-white/30 dark:bg-white/5 p-4 transition-all duration-200 hover:bg-white/50 dark:hover:bg-white/10 hover:shadow-soft cursor-pointer"
-                      style={{ animationDelay: `${i * 100}ms` }}
-                    >
-                      <div className="flex items-start justify-between mb-1">
-                        <div>
-                          <h4 className="font-semibold text-sm text-slate-800 dark:text-slate-100">{note.patientName}</h4>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {format(parseISO(note.createdAt), "d MMM yyyy, HH:mm", { locale: es })}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-black/20">{note.format}</Badge>
-                      </div>
-                      {note.content && (
-                        <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2 mt-1">
-                          {note.content}
-                        </p>
-                      )}
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
         </div>
 
         {/* Modal para Editar Meta Mensual de Sesiones */}
@@ -499,6 +480,7 @@ const Dashboard = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
       </div>
     </Layout>
   );

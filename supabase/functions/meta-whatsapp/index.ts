@@ -417,6 +417,7 @@ serve(async (req) => {
 
         let metaMsgId = `MOCK_SID_${Math.random().toString(36).substr(2, 9)}`;
         const cleanPhoneTo = formatPhoneForMeta(phone);
+        let templateError: string | null = null;
 
         if (!isMockMode) {
           try {
@@ -425,8 +426,8 @@ serve(async (req) => {
             // Try template payload first if template_id is specified
             if (template_id) {
               const metaTemplateName = (template_id === 'test' || template_id === 'hello_world') ? 'hello_world' : (template_id.includes('reminder') ? 'reminder' : template_id);
-              // user created the templates in Meta using English (US)
-              const langCode = 'en_US';
+              // user created most templates in Meta using English (US), except the new one
+              const langCode = template_id === 'recordatorio_inactivid' ? 'es' : 'en_US';
 
               const templatePayload: any = {
                 messaging_product: "whatsapp",
@@ -450,6 +451,22 @@ serve(async (req) => {
                 ];
               }
 
+              const { template_button_variables } = jsonBody;
+              if (template_button_variables && Array.isArray(template_button_variables) && template_button_variables.length > 0) {
+                if (!templatePayload.template.components) {
+                  templatePayload.template.components = [];
+                }
+                templatePayload.template.components.push({
+                  type: "button",
+                  sub_type: "url",
+                  index: "0",
+                  parameters: template_button_variables.map((v: string) => ({
+                    type: "text",
+                    text: v || ""
+                  }))
+                });
+              }
+
               const tplResponse = await fetch(`https://graph.facebook.com/v25.0/${metaPhoneNumberId}/messages`, {
                 method: "POST",
                 headers: {
@@ -462,7 +479,7 @@ serve(async (req) => {
               responseData = await tplResponse.json();
             }
 
-            let templateError = responseData?.error ? `Template Error: ${responseData.error.message}` : null;
+            templateError = responseData?.error ? `Template Error: ${responseData.error.message}` : null;
 
             // Fallback to text payload if template wasn't used or failed
             if (!responseData || responseData.error) {
@@ -470,7 +487,7 @@ serve(async (req) => {
                 messaging_product: "whatsapp",
                 to: cleanPhoneTo,
                 type: "text",
-                text: { body: body }
+                text: { body: body || `[Fallback for template ${template_id}]` }
               };
 
               const textResponse = await fetch(`https://graph.facebook.com/v25.0/${metaPhoneNumberId}/messages`, {
@@ -520,7 +537,7 @@ serve(async (req) => {
           created_at: new Date().toISOString()
         });
 
-        return new Response(JSON.stringify({ success: true, messageId: metaMsgId }), { headers: corsHeaders });
+        return new Response(JSON.stringify({ success: true, messageId: metaMsgId, templateError }), { headers: corsHeaders });
       }
 
       // --- ACCIÓN 3.2: Enviar Recordatorios en Lote ---

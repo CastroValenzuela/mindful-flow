@@ -28,19 +28,23 @@ const FEATURES = [
 
 export default function PricingModal() {
   const { isOpen, close } = usePricingModal();
-  const { isTrialExpired } = useSubscription();
+  const { isTrialExpired, daysRemaining, status: subStatus } = useSubscription();
   const { organization } = useOrganization();
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [isLoading, setIsLoading] = useState(false);
 
   if (!isOpen) return null;
 
+  const isTrialing = subStatus === 'trialing';
+  const effectiveTrialDays = (isTrialing && daysRemaining > 0) ? daysRemaining : 30;
+
   // Dates for timeline
   const today = new Date();
-  const reminderDate = new Date(today);
-  reminderDate.setDate(today.getDate() + 23);
   const chargeDate = new Date(today);
-  chargeDate.setDate(today.getDate() + 30);
+  chargeDate.setDate(today.getDate() + effectiveTrialDays);
+  
+  const reminderDate = new Date(chargeDate);
+  reminderDate.setDate(chargeDate.getDate() - 7);
 
   const formatDate = (date: Date) =>
     date.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -107,7 +111,9 @@ export default function PricingModal() {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-md mx-auto">
             {isTrialExpired 
               ? 'Suscríbete al Plan Pro para continuar gestionando tu consultorio clínico.' 
-              : 'Pruébalo gratis 30 días. Cancela cuando quieras, sin compromisos.'}
+              : isTrialing 
+                ? `Asegura tu suscripción ahora. Te quedan ${effectiveTrialDays} días de prueba.`
+                : 'Pruébalo gratis 30 días. Cancela cuando quieras, sin compromisos.'}
           </p>
 
           {/* ── Toggle Mensual / Anual ── */}
@@ -253,7 +259,9 @@ export default function PricingModal() {
                 <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-slate-200 dark:via-slate-700 to-transparent -mt-5 mb-5" />
                 <h4 className="font-bold text-slate-800 dark:text-white text-xs mt-2">Hoy</h4>
                 <p className="text-[10px] text-slate-400 mt-0.5 leading-tight max-w-[140px]">
-                  Inicia tu prueba gratis de 30 días
+                  {isTrialing 
+                    ? 'Asegura tu suscripción'
+                    : 'Inicia tu prueba gratis de 30 días'}
                 </p>
               </div>
 
@@ -300,7 +308,7 @@ export default function PricingModal() {
                 {isTrialExpired 
                   ? `MX$${selectedPrice.toLocaleString()}` 
                   : 'MX$0'}
-                {!isTrialExpired && <span className="text-xs font-normal text-slate-400"> (30 días gratis)</span>}
+                {!isTrialExpired && <span className="text-xs font-normal text-slate-400"> ({effectiveTrialDays} días gratis)</span>}
               </p>
             </div>
             {!isTrialExpired && (
@@ -321,7 +329,7 @@ export default function PricingModal() {
             {isLoading ? (
               <><Loader2 className="w-5 h-5 animate-spin" /> Procesando...</>
             ) : (
-              <><Sparkles className="w-5 h-5" /> {isTrialExpired ? 'Suscribirse al Plan Pro' : 'Comenzar 30 días gratis'}</>
+              <><Sparkles className="w-5 h-5" /> {isTrialExpired ? 'Suscribirse al Plan Pro' : isTrialing ? `Continuar (${effectiveTrialDays} días restantes)` : 'Comenzar 30 días gratis'}</>
             )}
           </Button>
 

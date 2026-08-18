@@ -493,7 +493,7 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
       )}>
         {/* Left: Brand */}
         <div className="flex items-center gap-2 w-max">
-          {/* <AppLauncher /> - Ocultado temporalmente por solicitud del usuario */}
+          {user?.email === 'saudade.app.mx@gmail.com' && <AppLauncher />}
           <span className="text-lg sm:text-xl font-bold tracking-tight text-foreground/90 leading-none">Saudade</span>
           <Button variant="ghost" size="icon-sm" className="lg:hidden ml-1" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />
@@ -635,8 +635,8 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
       {/* Floating Help Widget — available on every page */}
       <HelpWidget />
 
-      {/* Floating AI System Agent — Ocultado temporalmente por solicitud del usuario */}
-      {/* <SystemAgentWidget /> */}
+      {/* Floating AI System Agent - Solo visible para SuperAdmin */}
+      {user?.email === 'saudade.app.mx@gmail.com' && <SystemAgentWidget />}
 
       {/* Global Command Palette (⌘K) */}
       <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />

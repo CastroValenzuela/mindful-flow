@@ -86,7 +86,7 @@ export function useSubscription() {
     let effectiveEnd = periodEnd;
     if (!effectiveEnd && status === 'trialing' && organization?.created_at) {
       const createdDate = new Date(organization.created_at);
-      createdDate.setDate(createdDate.getDate() + 30);
+      createdDate.setDate(createdDate.getDate() + 90); // 90 days for dev
       effectiveEnd = createdDate.toISOString();
     }
 

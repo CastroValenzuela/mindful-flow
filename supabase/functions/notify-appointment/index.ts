@@ -532,14 +532,24 @@ serve(async (req) => {
         // Variables matched to Meta template:
         // {{1}} = Patient Name
         // {{2}} = Therapist/Clinic Name
-        // {{3}} = Session Type
+        // {{3}} = Location / Modality ("línea (Videollamada)" or "el consultorio")
         // {{4}} = Date
         // {{5}} = Time
         const shortName = patName ? patName.split(' ')[0] : 'Paciente';
+        
+        // Dynamically build variable 3 (the location/modality that follows "en")
+        let locationVar = '';
+        if (modality === 'online') {
+          const platformName = meetingPlatform ? meetingPlatform.charAt(0).toUpperCase() + meetingPlatform.slice(1) : '';
+          locationVar = platformName ? `línea (Videollamada por ${platformName})` : 'línea (Videollamada)';
+        } else {
+          locationVar = location ? location : 'el consultorio';
+        }
+
         const variables = [
           shortName, 
           psychName, 
-          typeLabel, 
+          locationVar, 
           patientDateStr, 
           `${patientStartStr} ${patientTzLabel}`
         ];
