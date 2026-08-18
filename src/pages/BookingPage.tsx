@@ -276,7 +276,10 @@ const BookingPage = () => {
               local: currentUTC.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: visitorTimezone })
             });
           }
-          currentUTC = slotEndUTC;
+          
+          // Advance the slot pointer by a 60-minute block minimum to allow for buffer/notes
+          const blockDuration = Math.max(60, duration);
+          currentUTC = new Date(currentUTC.getTime() + blockDuration * 60 * 1000);
         }
 
         setAvailableSlots(slots);
