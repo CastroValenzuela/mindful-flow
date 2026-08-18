@@ -837,7 +837,6 @@ const BookingPage = () => {
                       />
                     </div>
                   )}
-                  </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="reason">Motivo de consulta</Label>
