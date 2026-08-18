@@ -728,7 +728,7 @@ const BookingPage = () => {
                       placeholder="ana@ejemplo.com"
                     />
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <div className="space-y-2 flex-1 min-w-0">
                       <Label htmlFor="phone">Teléfono / WhatsApp *</Label>
                       <PhoneInput 
@@ -737,7 +737,7 @@ const BookingPage = () => {
                         onChange={(fullFormatted) => setPatientInfo({ ...patientInfo, phone: fullFormatted })}
                       />
                     </div>
-                    <div className="space-y-2 w-full sm:w-28 shrink-0">
+                    <div className="space-y-2 w-full sm:w-20 shrink-0">
                       <Label htmlFor="age">Edad</Label>
                       <Input 
                         id="age" 

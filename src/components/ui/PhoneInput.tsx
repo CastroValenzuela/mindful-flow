@@ -136,11 +136,11 @@ export const PhoneInput: React.FC<PhoneInputProps> = ({
     <div className={cn('flex items-center gap-2.5 w-full', className)}>
       {/* Recuadro 1: Selector de País (Compacto y Elegante) */}
       <Select value={selectedDialCode} onValueChange={handleCountryChange} disabled={disabled}>
-        <SelectTrigger className="w-[105px] sm:w-[115px] h-10 shrink-0 bg-card border-border hover:bg-muted/40 font-semibold rounded-xl text-xs shadow-2xs transition-all focus:ring-2 focus:ring-primary/20">
+        <SelectTrigger className="w-[90px] sm:w-[100px] h-10 shrink-0 bg-card border-border hover:bg-muted/40 font-semibold rounded-xl text-xs shadow-2xs transition-all focus:ring-2 focus:ring-primary/20 px-2">
           <SelectValue>
             <span className="flex items-center gap-1 truncate">
               <span className="text-base leading-none shrink-0">{selectedCountry.flag}</span>
-              <span className="font-mono text-xs font-bold text-foreground">{selectedCountry.dialCode}</span>
+              <span className="font-mono text-[11px] sm:text-xs font-bold text-foreground">{selectedCountry.dialCode}</span>
             </span>
           </SelectValue>
         </SelectTrigger>
@@ -177,12 +177,11 @@ export const PhoneInput: React.FC<PhoneInputProps> = ({
           placeholder={placeholder}
           className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-mono font-bold tracking-wide outline-none placeholder:text-muted-foreground/35 placeholder:font-sans text-foreground"
         />
-        <div className="shrink-0 flex items-center pl-1">
+        <div className="shrink-0 flex items-center pr-1">
           {isComplete ? (
-            <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-              <Check className="h-3.5 w-3.5 stroke-[3]" />
-              <span className="hidden sm:inline">Válido</span>
-            </span>
+            <div className="flex items-center justify-center bg-emerald-500/15 text-emerald-600 w-5 h-5 rounded-full">
+              <Check className="w-3.5 h-3.5" />
+            </div>
           ) : (
             <span className={cn(
               'text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-muted/60',
