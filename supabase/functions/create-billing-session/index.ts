@@ -23,15 +23,27 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) throw new Error('Unauthorized');
 
-    const { organization_id, plan_id, return_url } = await req.json();
+    const { organization_id: requestedOrgId, plan_id, return_url } = await req.json();
+
+    // CRITICAL: Resolve the user's PRIMARY organization (oldest one, with their data)
+    // to prevent billing from pointing to a duplicate empty org
+    const { data: primaryMembership } = await supabase
+      .from('organization_members')
+      .select('organization_id, role')
+      .eq('user_id', user.id)
+      .order('joined_at', { ascending: true })
+      .limit(1)
+      .single();
+
+    const organization_id = primaryMembership?.organization_id || requestedOrgId;
 
     // Verify user is owner/admin of the org
-    const { data: membership } = await supabase
+    const membership = primaryMembership || (await supabase
       .from('organization_members')
       .select('role')
       .eq('organization_id', organization_id)
       .eq('user_id', user.id)
-      .single();
+      .single()).data;
 
     if (!membership || !['owner', 'admin'].includes(membership.role)) {
       throw new Error('You do not have permission to manage billing for this organization');
@@ -39,7 +51,7 @@ serve(async (req) => {
 
     const { data: org } = await supabase
       .from('organizations')
-      .select('stripe_customer_id, name, billing_email, plan_id, subscription_status')
+      .select('stripe_customer_id, name, billing_email, plan_id, subscription_status, created_at')
       .eq('id', organization_id)
       .single();
 

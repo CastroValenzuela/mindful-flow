@@ -66,7 +66,7 @@ serve(async (req) => {
     }
 
     // Extract data from the subscription
-    const orgId = subscription.metadata?.organization_id || session.metadata?.organization_id;
+    const metadataOrgId = subscription.metadata?.organization_id || session.metadata?.organization_id;
     const planId = subscription.metadata?.plan_id || 'pro';
     const status = subscription.status; // 'trialing', 'active', etc.
     const periodEnd = new Date(subscription.current_period_end * 1000).toISOString();
@@ -76,12 +76,30 @@ serve(async (req) => {
     const cancelAtPeriodEnd = subscription.cancel_at_period_end || false;
     const customerId = subscription.customer as string;
 
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+    );
+
+    // CRITICAL: Always find the user's PRIMARY organization (oldest one, which has their data)
+    // Do NOT blindly trust metadata org_id — it might point to a duplicate empty org.
+    let orgId = metadataOrgId;
+
+    // Find the user's oldest (primary) organization — the one that actually has data
+    const { data: primaryMembership } = await supabaseAdmin
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .order('joined_at', { ascending: true })
+      .limit(1)
+      .single();
+
+    if (primaryMembership) {
+      orgId = primaryMembership.organization_id;
+    }
+
     if (!orgId) {
-      // Fallback: look up the organization by customer ID
-      const supabaseAdmin = createClient(
-        Deno.env.get('SUPABASE_URL') || '',
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
-      );
+      // Last resort fallback: look up by stripe customer ID
       const { data: org } = await supabaseAdmin
         .from('organizations')
         .select('id')
@@ -89,34 +107,10 @@ serve(async (req) => {
         .single();
 
       if (!org) throw new Error('Organization not found for this customer');
-
-      await supabaseAdmin
-        .from('organizations')
-        .update({
-          subscription_status: status,
-          plan_id: planId,
-          current_period_end: trialEnd || periodEnd,
-          cancel_at_period_end: cancelAtPeriodEnd,
-          stripe_subscription_id: subscription.id,
-        })
-        .eq('id', org.id);
-
-      return new Response(JSON.stringify({ 
-        verified: true,
-        status,
-        plan_id: planId,
-        period_end: trialEnd || periodEnd,
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      orgId = org.id;
     }
 
-    // Update the organization with subscription data using service role
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') || '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
-    );
-
+    // Update the organization with subscription data
     const { error: updateError } = await supabaseAdmin
       .from('organizations')
       .update({
@@ -134,10 +128,13 @@ serve(async (req) => {
       throw new Error('Failed to update organization: ' + updateError.message);
     }
 
-    // Always ensure onboarding is marked as complete once they have a verified subscription
+    // Ensure profile points to the correct org (in case it was changed during checkout)
     await supabaseAdmin
       .from('profiles')
-      .update({ onboarding_completed: true })
+      .update({ 
+        onboarding_completed: true,
+        current_organization_id: orgId
+      })
       .eq('id', user.id);
 
     console.log(`✅ Subscription verified for org ${orgId}: ${status} / ${planId}`);

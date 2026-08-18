@@ -45,9 +45,25 @@ serve(async (req) => {
         const periodEnd = new Date(subscription.current_period_end * 1000).toISOString();
         const cancelAtPeriodEnd = subscription.cancel_at_period_end;
 
-        // Find org by customer_id or metadata
-        const orgId = subscription.metadata?.organization_id;
+        // Find org by metadata first
+        let orgId = subscription.metadata?.organization_id;
         const planId = subscription.metadata?.plan_id; // Using our slug (pro/clinic)
+
+        // CRITICAL: If we have a customer ID, try to find the PRIMARY org for this customer
+        // to prevent updating a duplicate/empty org created during checkout
+        if (customerId) {
+          const { data: existingOrg } = await supabaseAdmin
+            .from('organizations')
+            .select('id')
+            .eq('stripe_customer_id', customerId)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+          
+          if (existingOrg) {
+            orgId = existingOrg.id;
+          }
+        }
 
         if (orgId) {
           const updateData: any = {
