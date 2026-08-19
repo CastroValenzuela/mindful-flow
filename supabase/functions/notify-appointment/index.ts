@@ -547,13 +547,26 @@ serve(async (req) => {
           locationVar = location ? location : 'el consultorio';
         }
 
-        const variables = [
-          shortName, 
-          psychName, 
-          locationVar, 
-          patientDateStr, 
-          `${patientStartStr} ${patientTzLabel}`
-        ];
+        const tplId = (!patientId || sessionType === 'initial' || sessionType === 'primera_vez' || sessionType?.toLowerCase().includes('primera')) ? 'primera_cita' : 'confirmacion_cita';
+
+        let variables: string[] = [];
+        if (tplId === 'primera_cita') {
+          const modalityClean = modality === 'online' ? 'En línea (Videollamada)' : 'Presencial';
+          variables = [
+            shortName, 
+            `${patientDateStr} a las ${patientStartStr} ${patientTzLabel}`, 
+            psychName, 
+            modalityClean 
+          ];
+        } else {
+          variables = [
+            shortName, 
+            psychName, 
+            locationVar, 
+            patientDateStr, 
+            `${patientStartStr} ${patientTzLabel}`
+          ];
+        }
         
         try {
           const waRes = await fetch(`${siteUrl}/functions/v1/meta-whatsapp`, {
@@ -567,7 +580,7 @@ serve(async (req) => {
               phone: patPhone,
               organization_id: profileData.current_organization_id,
               patient_id: patientId,
-              template_id: (!patientId || sessionType === 'initial' || sessionType === 'primera_vez' || sessionType?.toLowerCase().includes('primera')) ? 'primera_cita' : 'confirmacion_cita',
+              template_id: tplId,
               template_variables: variables
             })
           });

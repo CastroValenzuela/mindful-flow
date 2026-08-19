@@ -480,6 +480,9 @@ serve(async (req) => {
             }
 
             templateError = responseData?.error ? `Template Error: ${responseData.error.message}` : null;
+            if (templateError) {
+              console.error(`[meta-whatsapp] Template failed for ${template_id}: ${templateError}`);
+            }
 
             // Fallback to text payload if template wasn't used or failed
             if (!responseData || responseData.error) {
