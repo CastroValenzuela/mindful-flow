@@ -321,6 +321,16 @@ const BookingPage = () => {
     e.preventDefault();
     if (!profile || !selectedDate || !selectedTime) return;
 
+    if (modality === 'Videollamada' && !meetingPlatform) {
+      toast.error('Por favor, selecciona una plataforma de videollamada.');
+      return;
+    }
+
+    if (modality === 'Presencial' && !location.trim()) {
+      toast.error('Por favor, ingresa la ubicación o consultorio.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       // 1. Create a "lead" or "patient" record ideally, or just save on appointment
@@ -998,11 +1008,18 @@ const BookingPage = () => {
                 <div className="p-4 rounded-xl border glass border-white/20 w-full max-w-sm text-left">
                   <p className="text-sm text-muted-foreground mb-1">Cuándo</p>
                   <p className="font-semibold mb-3">
-                    {format(selectedDate!, "EEEE, d 'de' MMMM, yyyy", { locale: es })} <br/>
+                    {format(typeof selectedDate === 'string' ? new Date(selectedDate) : selectedDate!, "EEEE, d 'de' MMMM, yyyy", { locale: es })} <br/>
                     {availableSlots.find(s => s.clinic === selectedTime)?.local || selectedTime} ({getTimezoneFriendlyLabel(visitorTimezone)})
                   </p>
                   <p className="text-sm text-muted-foreground mb-1">Especialista</p>
-                  <p className="font-semibold">{displayName}</p>
+                  <p className="font-semibold mb-3">{displayName}</p>
+                  <p className="text-sm text-muted-foreground mb-1">Modalidad</p>
+                  <p className="font-semibold">
+                    {modality === 'Videollamada' 
+                      ? `Videollamada (${meetingPlatform === 'saudade' ? 'Consultorio Virtual Saudade' : meetingPlatform === 'meet' ? 'Google Meet' : meetingPlatform === 'zoom' ? 'Zoom' : meetingPlatform === 'whatsapp' ? 'WhatsApp Video' : meetingPlatform})`
+                      : `Presencial (${location})`
+                    }
+                  </p>
                 </div>
               </div>
             )}
