@@ -484,7 +484,9 @@ const BookingPage = () => {
           meetingLink: finalMeetLink,
           meetingPlatform: finalPlatform,
           notes: `Reservado desde Portal Público.\nEmail: ${patientInfo.email}\nTeléfono: ${patientInfo.phone}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nModalidad: ${modality}`,
-          patientTimezone: visitorTimezone
+          patientTimezone: visitorTimezone,
+          modality: modality === 'Videollamada' ? 'online' : 'presencial',
+          location: modality === 'Videollamada' ? null : location
         }
       }).then(({ data, error }) => {
         if (error) {
