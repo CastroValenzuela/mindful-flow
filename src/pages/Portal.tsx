@@ -28,7 +28,18 @@ import {
   Shield,
   Save,
   Phone,
-  Mail
+  Mail,
+  Search,
+  LayoutGrid,
+  List,
+  ArrowUpDown,
+  History,
+  Calendar,
+  MapPin,
+  HelpCircle,
+  ExternalLink,
+  ChevronRight,
+  FileCheck
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -43,6 +54,11 @@ interface Appointment {
   end_time: string;
   status: string;
   type: string;
+  modality?: string;
+  location?: string | null;
+  meeting_platform?: string | null;
+  fee?: number | string | null;
+  payment_status?: string | null;
   specialist_name: string;
   specialist_avatar: string | null;
   specialist_prefix: string | null;
@@ -113,6 +129,21 @@ const FORM_TYPE_LABELS: Record<string, string> = {
   datos_personales: 'Aviso de Privacidad y Datos Personales'
 };
 
+function getRelativeDateBadge(date: Date) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return { label: 'Hoy', variant: 'bg-emerald-500 text-white font-bold animate-pulse' };
+  if (diffDays === 1) return { label: 'Mañana', variant: 'bg-primary text-white font-bold' };
+  if (diffDays === 2) return { label: 'En 2 días', variant: 'bg-sky-100 text-sky-800 border border-sky-200' };
+  if (diffDays > 2 && diffDays <= 7) return { label: `En ${diffDays} días`, variant: 'bg-muted text-muted-foreground' };
+  if (diffDays === -1) return { label: 'Ayer', variant: 'bg-muted/60 text-muted-foreground' };
+  if (diffDays < -1) return { label: `Hace ${Math.abs(diffDays)} días`, variant: 'bg-muted/60 text-muted-foreground' };
+  return null;
+}
+
 export default function Portal() {
   const navigate = useNavigate();
   const [session, setSession] = useState<PatientSession | null>(null);
@@ -121,7 +152,18 @@ export default function Portal() {
   const [consents, setConsents] = useState<ConsentRecord[]>([]);
   const [patientTasks, setPatientTasks] = useState<PatientTaskItem[]>([]);
   const [patientProfile, setPatientProfile] = useState<PatientProfileData | null>(null);
+  
+  // Navigation & Filtering States
   const [activeTab, setActiveTab] = useState<'appointments' | 'tasks' | 'tests' | 'consents' | 'profile'>('appointments');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [appointmentFilter, setAppointmentFilter] = useState<'upcoming' | 'past' | 'cancelled' | 'all'>('upcoming');
+  const [taskFilter, setTaskFilter] = useState<'pending' | 'completed' | 'all'>('pending');
+  const [testFilter, setTestFilter] = useState<'pending' | 'completed' | 'all'>('pending');
+  const [consentFilter, setConsentFilter] = useState<'pending' | 'signed' | 'all'>('pending');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => (localStorage.getItem('portal_view_mode') as 'grid' | 'list') || 'grid');
+  const [sortBy, setSortBy] = useState<'date_asc' | 'date_desc'>('date_asc');
+
+  // Loading States
   const [loading, setLoading] = useState(true);
   const [loadingTests, setLoadingTests] = useState(false);
   const [loadingConsents, setLoadingConsents] = useState(false);
@@ -139,6 +181,11 @@ export default function Portal() {
     emergency_contact_relationship: '',
     reason_for_consultation: ''
   });
+
+  const handleSetViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('portal_view_mode', mode);
+  };
 
   const toggleTaskCompletion = (taskId: string) => {
     setPatientTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t));
@@ -159,13 +206,11 @@ export default function Portal() {
 
     const parsedSession: PatientSession = JSON.parse(savedSession);
     
-    // Check if session is valid
     if (!parsedSession.isLoggedIn || !parsedSession.accessToken) {
       navigate('/portal/login');
       return;
     }
 
-    // Check if token has expired
     if (parsedSession.expiresAt && new Date(parsedSession.expiresAt) < new Date()) {
       localStorage.removeItem('saudade_patient_session');
       toast.error('Tu sesión ha expirado. Por favor inicia sesión de nuevo.');
@@ -242,178 +287,27 @@ export default function Portal() {
       const { data, error } = await supabase.rpc('get_patient_tasks', {
         p_access_token: accessToken
       });
-      if (!error && data) {
+      if (!error && data && Array.isArray(data)) {
         setPatientTasks(data);
       } else {
         setPatientTasks([]);
       }
     } catch (err: unknown) {
-      console.warn('Task fetching fallback:', err);
+      console.warn('Error fetching patient tasks:', err);
       setPatientTasks([]);
     } finally {
       setLoadingTasks(false);
     }
   };
 
-  const fetchPatientConsents = async (accessToken: string) => {
-    setLoadingConsents(true);
-    try {
-      const { data, error } = await supabase.rpc('get_patient_consents', {
-        p_access_token: accessToken
-      });
-      if (error) throw error;
-      setConsents(data || []);
-    } catch (err: unknown) {
-      console.error('Error fetching patient consents:', err);
-      toast.error('Error al cargar tus documentos de consentimiento.');
-    } finally {
-      setLoadingConsents(false);
-    }
-  };
-
-  const generatePortalPDF = (consent: ConsentRecord) => {
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const margin = 20;
-    const pageW = doc.internal.pageSize.getWidth();
-    const contentW = pageW - margin * 2;
-    const title = FORM_TYPE_LABELS[consent.form_type] || 'Consentimiento Informado';
-
-    doc.setFontSize(10);
-    doc.setTextColor(120, 120, 120);
-    doc.text('NOM-024-SSA3-2012 | Expediente Clínico Electrónico', margin, 15);
-
-    // Render specialist logo in top-right header if available
-    if (consent.specialist_logo_data) {
-        try {
-            doc.addImage(consent.specialist_logo_data, 'PNG', pageW - margin - 22, 3.5, 22, 8);
-            doc.text(`Folio: ${consent.id.substring(0, 8).toUpperCase()}`, pageW - margin - 24, 15, { align: 'right' });
-        } catch (_) {
-            doc.text(`Folio: ${consent.id.substring(0, 8).toUpperCase()}`, pageW - margin, 15, { align: 'right' });
-        }
-    } else {
-        doc.text(`Folio: ${consent.id.substring(0, 8).toUpperCase()}`, pageW - margin, 15, { align: 'right' });
-    }
-
-    doc.setDrawColor(200, 200, 220);
-    doc.line(margin, 18, pageW - margin, 18);
-
-    doc.setFontSize(16);
-    doc.setTextColor(30, 30, 60);
-    doc.setFont('helvetica', 'bold');
-    doc.text(title, pageW / 2, 30, { align: 'center' });
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(60, 60, 60);
-    doc.text(`Paciente: ${session?.name || '—'}`, margin, 42);
-    
-    const signedDate = consent.signed_at ? parseISO(consent.signed_at) : new Date();
-    const dateFormatted = format(signedDate, "d 'de' MMMM 'de' yyyy", { locale: es });
-    doc.text(`Fecha de firma: ${dateFormatted}`, margin, 48);
-
-    doc.setFontSize(10);
-    doc.setTextColor(40, 40, 40);
-    const lines = doc.splitTextToSize(consent.consent_text || '', contentW);
-    let y = 58;
-    lines.forEach((line: string) => {
-        if (y > 250) { doc.addPage(); y = 20; }
-        doc.text(line, margin, y);
-        y += 5;
-    });
-
-    y += 40;
-    if (y > 220) { doc.addPage(); y = 20; }
-
-    const sigW = 80;
-    const sigX = (pageW - sigW) / 2;
-    doc.setDrawColor(180, 180, 200);
-    doc.line(sigX, y, sigX + sigW, y);
-    doc.setFontSize(9);
-    doc.setTextColor(100, 100, 120);
-    doc.text('Firma del paciente / tutor', pageW / 2, y + 5, { align: 'center' });
-    doc.text(`Fecha de firma: ${dateFormatted}`, pageW / 2, y + 10, { align: 'center' });
-
-    if (consent.signature_data_url) {
-        try { doc.addImage(consent.signature_data_url, 'PNG', sigX, y - 35, sigW, 33); } catch (_) { }
-    }
-
-    const totalPages = doc.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.text(
-            `Documento firmado digitalmente en Saudade Portal | Página ${i} de ${totalPages}`,
-            pageW / 2,
-            doc.internal.pageSize.getHeight() - 8,
-            { align: 'center' }
-        );
-    }
-
-    doc.save(`consentimiento_${consent.form_type}_firmado.pdf`);
-  };
-
-  const handleSignConsent = async () => {
-    if (!session || !signingConsent || !signatureDataUrl) return;
-    setIsSubmittingSignature(true);
-    try {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(signatureDataUrl);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-      const { data: success, error } = await supabase.rpc('sign_patient_consent', {
-        p_access_token: session.accessToken,
-        p_consent_id: signingConsent.id,
-        p_signature_data_url: signatureDataUrl,
-        p_signature_hash: hashHex
-      });
-
-      if (error) throw error;
-
-      if (success) {
-        toast.success('Documento firmado con éxito.');
-        
-        // Generate and download PDF instantly
-        const signedAtStr = new Date().toISOString();
-        const updatedConsent = {
-          ...signingConsent,
-          signed_at: signedAtStr,
-          signature_data_url: signatureDataUrl,
-          signature_hash: hashHex,
-          is_valid: true
-        };
-        
-        generatePortalPDF(updatedConsent);
-        
-        // Refresh consents list
-        await fetchPatientConsents(session.accessToken);
-        
-        // Close modal
-        setSigningConsent(null);
-        setSignatureDataUrl(null);
-      } else {
-        toast.error('No se pudo firmar el documento.');
-      }
-    } catch (err: any) {
-      console.error('Error signing consent:', err);
-      toast.error('Error al firmar: ' + err.message);
-    } finally {
-      setIsSubmittingSignature(false);
-    }
-  };
-
   const fetchAppointments = async (accessToken: string) => {
     setLoading(true);
     try {
-      // Use secure token-based RPC instead of email/phone
       const { data, error } = await supabase.rpc('get_patient_appointments', {
         p_access_token: accessToken
       });
 
       if (error) {
-        // If token is invalid, redirect to login
         if (error.message.includes('invalid') || error.code === 'PGRST202') {
           localStorage.removeItem('saudade_patient_session');
           navigate('/portal/login');
@@ -422,7 +316,6 @@ export default function Portal() {
         throw error;
       }
       
-      // Sort: upcoming first
       const sorted = (data || []).sort((a: Appointment, b: Appointment) => 
         new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
       );
@@ -443,10 +336,7 @@ export default function Portal() {
         p_access_token: accessToken
       });
 
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       setAssignedTests(data || []);
     } catch (err: unknown) {
       const error = err as Error;
@@ -457,32 +347,149 @@ export default function Portal() {
     }
   };
 
-  const handleCancelAppointment = async (id: string, managementToken: string) => {
-    if (!session || !confirm('¿Estás seguro de que deseas cancelar esta cita?')) return;
-    
-    setCancelingId(id);
+  const fetchPatientConsents = async (accessToken: string) => {
+    setLoadingConsents(true);
     try {
-      // Use secure token-based cancellation
-      const { data, error } = await supabase.rpc('cancel_patient_appointment', {
-        p_appointment_id: id,
-        p_token: managementToken
+      const { data, error } = await supabase.rpc('get_patient_consents', {
+        p_access_token: accessToken
       });
 
       if (error) throw error;
-      
-      if (data) {
-        toast.success('Cita cancelada con éxito.');
-        setAppointments(prev => prev.map(a => a.id === id ? { ...a, status: 'cancelled' } : a));
-      } else {
-        toast.error('No se pudo cancelar esta cita. El enlace puede haber expirado.');
-      }
+      setConsents(data || []);
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || 'No se pudo cancelar la cita.');
-      console.error(error);
+      console.error('Error fetching patient consents:', error);
+      toast.error('Error al cargar tus documentos.');
+    } finally {
+      setLoadingConsents(false);
+    }
+  };
+
+  const handleCancelAppointment = async (id: string, managementToken: string) => {
+    if (!confirm('¿Estás seguro de que deseas cancelar esta cita?')) return;
+    setCancelingId(id);
+    try {
+      const { data, error } = await supabase.rpc('cancel_appointment_by_token', {
+        p_management_token: managementToken,
+        p_reason: 'Cancelado por el paciente desde el portal'
+      });
+
+      if (error) throw error;
+      if (data && !data.success) {
+        throw new Error(data.error || 'No se pudo cancelar la cita.');
+      }
+
+      toast.success('Cita cancelada con éxito.');
+      if (session) fetchAppointments(session.accessToken);
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || 'Error al cancelar la cita.');
     } finally {
       setCancelingId(null);
     }
+  };
+
+  const handleSignConsent = async () => {
+    if (!signatureDataUrl || !signingConsent || !session) {
+      toast.error('Por favor dibuja tu firma antes de continuar.');
+      return;
+    }
+
+    setIsSubmittingSignature(true);
+    try {
+      const cryptoObj = window.crypto || (window as any).msCrypto;
+      const encoder = new TextEncoder();
+      const data = encoder.encode(signatureDataUrl + Date.now().toString());
+      const hashBuffer = await cryptoObj.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const signatureHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      const { data: resData, error } = await supabase.rpc('sign_patient_consent', {
+        p_access_token: session.accessToken,
+        p_consent_id: signingConsent.id,
+        p_signature_data_url: signatureDataUrl,
+        p_signature_hash: signatureHash
+      });
+
+      if (error) throw error;
+
+      toast.success('Documento firmado y registrado exitosamente');
+      setSigningConsent(null);
+      setSignatureDataUrl(null);
+      fetchPatientConsents(session.accessToken);
+    } catch (err: any) {
+      console.error('Error signing consent:', err);
+      toast.error('Error al firmar: ' + err.message);
+    } finally {
+      setIsSubmittingSignature(false);
+    }
+  };
+
+  const generateConsentPDF = (consent: ConsentRecord) => {
+    const doc = new jsPDF();
+    doc.setFont('helvetica');
+
+    // Header Branding
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Saudade', 20, 25);
+
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Plataforma de Gestión e Inteligencia Clínica', 20, 32);
+    doc.text('Alineado con la NOM-024-SSA3-2012', 20, 37);
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, 42, 190, 42);
+
+    // Title
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    const formTitle = FORM_TYPE_LABELS[consent.form_type] || consent.form_type.toUpperCase();
+    doc.text(formTitle, 20, 52);
+
+    // Metadata Table
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85);
+    doc.text(`Paciente: ${session?.name || 'Paciente'}`, 20, 62);
+    doc.text(`Especialista: ${consent.specialist_name || 'Especialista'}`, 20, 68);
+    const dateFormatted = consent.signed_at 
+      ? format(parseISO(consent.signed_at), "d 'de' MMMM, yyyy HH:mm 'hrs'", { locale: es }) 
+      : 'Pendiente de firma';
+    doc.text(`Fecha y Hora de Firma: ${dateFormatted}`, 20, 74);
+
+    doc.line(20, 80, 190, 80);
+
+    // Body
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    const splitText = doc.splitTextToSize(consent.consent_text, 170);
+    doc.text(splitText, 20, 90);
+
+    let finalY = 90 + (splitText.length * 5) + 15;
+    if (finalY > 220) {
+      doc.addPage();
+      finalY = 30;
+    }
+
+    // Signature Area
+    if (consent.signature_data_url) {
+      doc.addImage(consent.signature_data_url, 'PNG', 20, finalY, 60, 25);
+      doc.line(20, finalY + 27, 85, finalY + 27);
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Firma Digital del Paciente', 20, finalY + 32);
+
+      if (consent.signature_hash) {
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`Sello Criptográfico SHA-256: ${consent.signature_hash}`, 20, finalY + 38);
+      }
+    }
+
+    doc.save(`Consentimiento_${consent.form_type}_${session?.name?.replace(/\s+/g, '_') || 'Paciente'}.pdf`);
   };
 
   const handleLogout = () => {
@@ -490,138 +497,228 @@ export default function Portal() {
     navigate('/portal/login');
   };
 
-  if (loading || !session) {
+  if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/20">
+      <div className="min-h-screen flex items-center justify-center bg-[#FDFCFB]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
+  // ── FILTERED DATA COMPUTATION ──────────────────────────────────────────────
+
+  // 1. Appointments counts & filtered list
+  const upcomingApts = appointments.filter(a => a.status !== 'cancelled' && parseISO(a.start_time) >= new Date());
+  const pastApts = appointments.filter(a => a.status !== 'cancelled' && parseISO(a.start_time) < new Date());
+  const cancelledApts = appointments.filter(a => a.status === 'cancelled');
+
+  const filteredAppointments = appointments.filter(apt => {
+    const dateObj = parseISO(apt.start_time);
+    const isPast = dateObj < new Date() && apt.status !== 'cancelled';
+    const isUpcoming = dateObj >= new Date() && apt.status !== 'cancelled';
+    const isCancelled = apt.status === 'cancelled';
+
+    if (appointmentFilter === 'upcoming' && !isUpcoming) return false;
+    if (appointmentFilter === 'past' && !isPast) return false;
+    if (appointmentFilter === 'cancelled' && !isCancelled) return false;
+
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      const sName = (apt.specialist_name || '').toLowerCase();
+      const type = (apt.type || '').toLowerCase();
+      const modality = (apt.modality || '').toLowerCase();
+      const dateFormatted = format(dateObj, "d 'de' MMMM yyyy", { locale: es }).toLowerCase();
+      if (!sName.includes(q) && !type.includes(q) && !modality.includes(q) && !dateFormatted.includes(q)) {
+        return false;
+      }
+    }
+
+    return true;
+  }).sort((a, b) => {
+    const timeA = new Date(a.start_time).getTime();
+    const timeB = new Date(b.start_time).getTime();
+    if (sortBy === 'date_asc') return timeA - timeB;
+    return timeB - timeA;
+  });
+
+  // 2. Tasks filtered list
+  const pendingTasks = patientTasks.filter(t => !t.completed);
+  const completedTasks = patientTasks.filter(t => t.completed);
+  const filteredTasks = patientTasks.filter(t => {
+    if (taskFilter === 'pending' && t.completed) return false;
+    if (taskFilter === 'completed' && !t.completed) return false;
+    if (searchTerm.trim() && !t.task.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    return true;
+  });
+
+  // 3. Tests filtered list
+  const pendingTests = assignedTests.filter(t => t.status === 'pending');
+  const completedTests = assignedTests.filter(t => t.status === 'completed' || t.status === 'scored');
+  const filteredTests = assignedTests.filter(t => {
+    if (testFilter === 'pending' && t.status !== 'pending') return false;
+    if (testFilter === 'completed' && t.status === 'pending') return false;
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      const testCatalog = psychometricTests[t.test_type];
+      const testName = (testCatalog ? testCatalog.name : t.test_type).toLowerCase();
+      if (!testName.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // 4. Consents filtered list
+  const pendingConsents = consents.filter(c => !c.signed_at);
+  const signedConsents = consents.filter(c => !!c.signed_at);
+  const filteredConsents = consents.filter(c => {
+    if (consentFilter === 'pending' && !!c.signed_at) return false;
+    if (consentFilter === 'signed' && !c.signed_at) return false;
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      const label = (FORM_TYPE_LABELS[c.form_type] || c.form_type).toLowerCase();
+      const sName = (c.specialist_name || '').toLowerCase();
+      if (!label.includes(q) && !sName.includes(q)) return false;
+    }
+    return true;
+  });
+
   return (
     <div className="min-h-screen bg-[#FDFCFB] text-foreground flex flex-col font-sans">
       {/* Top Header */}
-      <header className="py-4 bg-white border-b border-border/50 px-4 md:px-8 flex items-center justify-between sticky top-0 z-10 w-full">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <span className="text-primary font-bold text-sm tracking-tighter">S.</span>
+      <header className="py-3.5 bg-white border-b border-border/50 px-4 md:px-8 flex items-center justify-between sticky top-0 z-20 w-full backdrop-blur-md bg-white/90">
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black text-base shadow-xs">
+            S.
           </div>
-          <span className="font-bold tracking-tight text-lg">Saudade Portal</span>
+          <div>
+            <span className="font-extrabold tracking-tight text-base text-foreground block leading-none">
+              Saudade
+            </span>
+            <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+              Portal del Paciente
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="hidden md:flex flex-col text-right">
-            <span className="text-sm font-medium">{session.name}</span>
-            <span className="text-xs text-muted-foreground">{session.email}</span>
+            <span className="text-xs font-bold text-foreground">{session.name}</span>
+            <span className="text-[11px] text-muted-foreground">{session.email}</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleLogout} title="Cerrar Sesión">
-            <LogOut className="h-5 w-5 text-muted-foreground" />
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleLogout} 
+            className="rounded-xl text-xs gap-1.5 font-semibold text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-9 px-3"
+            title="Cerrar Sesión"
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Cerrar Sesión</span>
           </Button>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 py-8">
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 py-6 md:py-8">
         
         {/* Navigation Tabs Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 border-b border-border/50 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-border/50 pb-4">
           <div>
-            <h1 className="text-3xl font-black tracking-tight mb-1 text-foreground">
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-1 text-foreground">
               {activeTab === 'appointments' 
                 ? 'Mis Citas' 
                 : activeTab === 'tests' 
-                ? 'Mis Pruebas Clínicas' 
+                ? 'Mis Evaluaciones' 
                 : activeTab === 'tasks'
                 ? 'Mis Tareas'
                 : activeTab === 'consents'
                 ? 'Mis Documentos'
                 : 'Mi Perfil Clínico'}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs md:text-sm text-muted-foreground">
               {activeTab === 'appointments' 
-                ? 'Gestiona tus próximas sesiones y tu historial de atención.' 
+                ? 'Consulta tus próximas sesiones, unirte a videollamadas y revisar tu historial de atención.' 
                 : activeTab === 'tests'
                 ? 'Resuelve tus evaluaciones psicométricas asignadas y revisa tus resultados históricos.'
                 : activeTab === 'tasks'
-                ? 'Consulta tus tareas y ejercicios recomendados por tu especialista entre sesiones.'
+                ? 'Consulta tus ejercicios y tareas recomendadas por tu especialista entre sesiones.'
                 : activeTab === 'consents'
-                ? 'Lee y firma de forma electrónica los documentos y consentimientos informados asignados.'
-                : 'Consulta y actualiza tus datos demográficos, de contacto y contacto de emergencia.'}
+                ? 'Revisa y firma de forma remota tus avisos de privacidad y consentimientos informados.'
+                : 'Mantén actualizados tus datos de contacto, emergencia y motivo de consulta.'}
             </p>
           </div>
 
-          <div className="flex gap-2 bg-muted/20 p-1.5 rounded-xl border border-border/40 shrink-0 self-start sm:self-center flex-wrap">
+          <div className="flex gap-1.5 bg-muted/20 p-1.5 rounded-2xl border border-border/40 shrink-0 self-start sm:self-center flex-wrap">
             <button
-              onClick={() => setActiveTab('appointments')}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+              onClick={() => { setActiveTab('appointments'); setSearchTerm(''); }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs md:text-sm font-bold rounded-xl transition-all ${
                 activeTab === 'appointments'
-                  ? 'bg-white text-primary shadow-sm border border-border/20'
+                  ? 'bg-white text-primary shadow-xs border border-border/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
               }`}
             >
               <CalendarIcon className="h-4 w-4" />
               <span>Mis Citas</span>
-              {appointments.filter(a => a.status !== 'cancelled' && parseISO(a.start_time) >= new Date()).length > 0 && (
-                <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+              {upcomingApts.length > 0 && (
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               )}
             </button>
 
             <button
-              onClick={() => setActiveTab('tasks')}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all relative ${
+              onClick={() => { setActiveTab('tasks'); setSearchTerm(''); }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs md:text-sm font-bold rounded-xl transition-all relative ${
                 activeTab === 'tasks'
-                  ? 'bg-white text-primary shadow-sm border border-border/20'
+                  ? 'bg-white text-primary shadow-xs border border-border/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
               }`}
             >
               <CheckSquare className="h-4 w-4" />
-              <span>Mis Tareas</span>
-              {patientTasks.filter(t => !t.completed).length > 0 && (
-                <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-emerald-600 text-[10px] font-bold text-white px-1 shadow-md shadow-emerald-600/20">
-                  {patientTasks.filter(t => !t.completed).length}
+              <span>Tareas</span>
+              {pendingTasks.length > 0 && (
+                <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-emerald-600 text-[10px] font-bold text-white px-1 shadow-xs">
+                  {pendingTasks.length}
                 </span>
               )}
             </button>
 
             <button
-              onClick={() => setActiveTab('tests')}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all relative ${
+              onClick={() => { setActiveTab('tests'); setSearchTerm(''); }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs md:text-sm font-bold rounded-xl transition-all relative ${
                 activeTab === 'tests'
-                  ? 'bg-white text-primary shadow-sm border border-border/20'
+                  ? 'bg-white text-primary shadow-xs border border-border/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
               }`}
             >
               <BrainCircuit className="h-4 w-4" />
-              <span>Mis Pruebas</span>
-              {assignedTests.filter(t => t.status === 'pending').length > 0 && (
-                <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-[10px] font-bold text-white px-1 shadow-md shadow-primary/20 animate-bounce">
-                  {assignedTests.filter(t => t.status === 'pending').length}
+              <span>Pruebas</span>
+              {pendingTests.length > 0 && (
+                <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-[10px] font-bold text-white px-1 shadow-xs animate-bounce">
+                  {pendingTests.length}
                 </span>
               )}
             </button>
 
             <button
-              onClick={() => setActiveTab('consents')}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all relative ${
+              onClick={() => { setActiveTab('consents'); setSearchTerm(''); }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs md:text-sm font-bold rounded-xl transition-all relative ${
                 activeTab === 'consents'
-                  ? 'bg-white text-primary shadow-sm border border-border/20'
+                  ? 'bg-white text-primary shadow-xs border border-border/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
               }`}
             >
               <FileSignature className="h-4 w-4" />
-              <span>Mis Documentos</span>
-              {consents.filter(c => !c.signed_at).length > 0 && (
-                <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-amber-500 text-[10px] font-bold text-white px-1 shadow-md shadow-amber-500/20 animate-bounce">
-                  {consents.filter(c => !c.signed_at).length}
+              <span>Documentos</span>
+              {pendingConsents.length > 0 && (
+                <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-amber-500 text-[10px] font-bold text-white px-1 shadow-xs animate-pulse">
+                  {pendingConsents.length}
                 </span>
               )}
             </button>
 
             <button
-              onClick={() => setActiveTab('profile')}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all relative ${
+              onClick={() => { setActiveTab('profile'); setSearchTerm(''); }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs md:text-sm font-bold rounded-xl transition-all relative ${
                 activeTab === 'profile'
-                  ? 'bg-white text-primary shadow-sm border border-border/20'
+                  ? 'bg-white text-primary shadow-xs border border-border/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
               }`}
             >
@@ -631,22 +728,254 @@ export default function Portal() {
           </div>
         </div>
 
-        {/* Appointments Tab Content */}
+        {/* ── TOOLBAR (SEARCH, STATUS FILTERS, SORT, VIEW MODE TOGGLE) ────────── */}
+        {activeTab !== 'profile' && (
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 mb-6 bg-white p-3.5 rounded-2xl border border-border/60 shadow-xs animate-fade-in">
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none">
+              {activeTab === 'appointments' && (
+                <>
+                  <button
+                    onClick={() => setAppointmentFilter('upcoming')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      appointmentFilter === 'upcoming'
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                    }`}
+                  >
+                    <span>Próximas</span>
+                    <Badge variant={appointmentFilter === 'upcoming' ? 'outline' : 'secondary'} className={`text-[10px] px-1.5 py-0 h-4 border-white/30 ${appointmentFilter === 'upcoming' ? 'text-white' : ''}`}>
+                      {upcomingApts.length}
+                    </Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setAppointmentFilter('past')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      appointmentFilter === 'past'
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                    }`}
+                  >
+                    <span>Historial / Pasadas</span>
+                    <Badge variant={appointmentFilter === 'past' ? 'outline' : 'secondary'} className={`text-[10px] px-1.5 py-0 h-4 border-white/30 ${appointmentFilter === 'past' ? 'text-white' : ''}`}>
+                      {pastApts.length}
+                    </Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setAppointmentFilter('cancelled')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      appointmentFilter === 'cancelled'
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                    }`}
+                  >
+                    <span>Canceladas</span>
+                    <Badge variant={appointmentFilter === 'cancelled' ? 'outline' : 'secondary'} className={`text-[10px] px-1.5 py-0 h-4 border-white/30 ${appointmentFilter === 'cancelled' ? 'text-white' : ''}`}>
+                      {cancelledApts.length}
+                    </Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setAppointmentFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      appointmentFilter === 'all'
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                    }`}
+                  >
+                    <span>Todas</span>
+                    <Badge variant={appointmentFilter === 'all' ? 'outline' : 'secondary'} className={`text-[10px] px-1.5 py-0 h-4 border-white/30 ${appointmentFilter === 'all' ? 'text-white' : ''}`}>
+                      {appointments.length}
+                    </Badge>
+                  </button>
+                </>
+              )}
+
+              {activeTab === 'tasks' && (
+                <>
+                  <button
+                    onClick={() => setTaskFilter('pending')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      taskFilter === 'pending' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Pendientes</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{pendingTasks.length}</Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setTaskFilter('completed')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      taskFilter === 'completed' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Completadas</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{completedTasks.length}</Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setTaskFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      taskFilter === 'all' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Todas</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{patientTasks.length}</Badge>
+                  </button>
+                </>
+              )}
+
+              {activeTab === 'tests' && (
+                <>
+                  <button
+                    onClick={() => setTestFilter('pending')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      testFilter === 'pending' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Por Resolver</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{pendingTests.length}</Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setTestFilter('completed')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      testFilter === 'completed' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Histórico / Resueltas</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{completedTests.length}</Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setTestFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      testFilter === 'all' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Todas</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{assignedTests.length}</Badge>
+                  </button>
+                </>
+              )}
+
+              {activeTab === 'consents' && (
+                <>
+                  <button
+                    onClick={() => setConsentFilter('pending')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      consentFilter === 'pending' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Por Firmar</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{pendingConsents.length}</Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setConsentFilter('signed')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      consentFilter === 'signed' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Firmados</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{signedConsents.length}</Badge>
+                  </button>
+
+                  <button
+                    onClick={() => setConsentFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      consentFilter === 'all' ? 'bg-primary text-white' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                    }`}
+                  >
+                    <span>Todos</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{consents.length}</Badge>
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Right: Search, Sort, and View Mode */}
+            <div className="flex items-center gap-2 justify-end">
+              {/* Search */}
+              <div className="relative flex-1 sm:w-56">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-9 pl-8 text-xs rounded-xl bg-muted/20 border-border/50 focus:bg-white"
+                />
+              </div>
+
+              {/* Sort button (for appointments) */}
+              {activeTab === 'appointments' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSortBy(sortBy === 'date_asc' ? 'date_desc' : 'date_asc')}
+                  className="h-9 px-2.5 rounded-xl text-xs gap-1 font-medium border-border/60 text-muted-foreground hover:text-foreground shrink-0"
+                  title={sortBy === 'date_asc' ? 'Ordenar: Más próximas primero' : 'Ordenar: Más recientes primero'}
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{sortBy === 'date_asc' ? 'Próximas' : 'Recientes'}</span>
+                </Button>
+              )}
+
+              {/* View Mode Toggle */}
+              <div className="flex items-center bg-muted/20 p-0.5 rounded-xl border border-border/50 shrink-0">
+                <button
+                  onClick={() => handleSetViewMode('grid')}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewMode === 'grid' ? 'bg-white text-primary shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Vista en Cuadrícula"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => handleSetViewMode('list')}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewMode === 'list' ? 'bg-white text-primary shadow-xs' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Vista en Lista Detallada"
+                >
+                  <List className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── APPOINTMENTS TAB ────────────────────────────────────────────────── */}
         {activeTab === 'appointments' && (
-          appointments.length === 0 ? (
+          loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : filteredAppointments.length === 0 ? (
             <Card className="p-12 text-center rounded-2xl border-dashed bg-muted/10 shadow-none">
               <CalendarIcon className="w-12 h-12 mx-auto text-muted-foreground opacity-50 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No tienes citas próximas</h3>
-              <p className="text-muted-foreground max-w-sm mx-auto">
-                Actualmente no encontramos citas bajo este correo electrónico. Si acabas de agendar, puede tardar minutos en aparecer.
+              <h3 className="text-lg font-bold mb-1">No se encontraron citas</h3>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                {searchTerm 
+                  ? 'No hay citas que coincidan con tu búsqueda.' 
+                  : appointmentFilter === 'upcoming' 
+                  ? 'No tienes citas próximas agendadas.' 
+                  : appointmentFilter === 'past'
+                  ? 'No tienes citas en tu historial.'
+                  : 'Actualmente no tienes citas registradas.'}
               </p>
             </Card>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {appointments.map(apt => {
+          ) : viewMode === 'grid' ? (
+            /* GRID VIEW */
+            <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3 animate-fade-in">
+              {filteredAppointments.map(apt => {
                 const dateObj = parseISO(apt.start_time);
                 const endObj = parseISO(apt.end_time);
                 const isPast = dateObj < new Date() && apt.status !== 'cancelled';
+                const relBadge = !isPast && apt.status !== 'cancelled' ? getRelativeDateBadge(dateObj) : null;
                 
                 const policyHours = apt.reschedule_policy_hours !== undefined && apt.reschedule_policy_hours !== null 
                   ? apt.reschedule_policy_hours 
@@ -665,75 +994,101 @@ export default function Portal() {
                   : apt.specialist_name;
 
                 return (
-                  <Card key={apt.id} className="rounded-xl overflow-hidden shadow-sm flex flex-col border-border/60">
+                  <Card key={apt.id} className={`rounded-2xl overflow-hidden shadow-xs flex flex-col border-border/60 transition-all hover:shadow-md ${
+                    isPast ? 'bg-muted/10 opacity-90' : 'bg-white'
+                  }`}>
                     <CardHeader className="p-5 pb-0">
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="bg-primary/5 text-primary p-2 rounded-lg">
-                          <CalendarIcon className="w-5 h-5" />
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-2 rounded-xl ${isPast ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
+                            <CalendarIcon className="w-4 h-4" />
+                          </div>
+                          {relBadge && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${relBadge.variant}`}>
+                              {relBadge.label}
+                            </span>
+                          )}
                         </div>
-                        <Badge variant={badgeVariant} className="font-medium">{statusText}</Badge>
+                        <Badge variant={badgeVariant} className="font-semibold text-xs">{statusText}</Badge>
                       </div>
-                      <CardTitle className="text-lg font-bold mb-1">
+
+                      <CardTitle className="text-base font-bold mb-1 leading-snug">
                         {format(dateObj, "EEEE, d 'de' MMMM", { locale: es })}
                       </CardTitle>
-                      <CardDescription className="text-base flex items-center gap-1.5 text-foreground/80">
-                        <Clock className="w-4 h-4" />
-                        {format(dateObj, "HH:mm")} - {format(endObj, "HH:mm")}
+                      <CardDescription className="text-xs flex items-center gap-1.5 text-foreground/80 font-medium">
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                        {format(dateObj, "HH:mm")} - {format(endObj, "HH:mm")} hrs
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="p-5 pt-4 flex-1">
-                      <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/50">
+
+                    <CardContent className="p-5 pt-3 flex-1 flex flex-col justify-between">
+                      {/* Specialist Info */}
+                      <div className="flex items-center gap-3 pt-3 border-t border-border/40">
                         {apt.specialist_avatar ? (
-                          <img src={apt.specialist_avatar} alt={pName} className="w-10 h-10 rounded-full object-cover border" />
+                          <img src={apt.specialist_avatar} alt={pName} className="w-9 h-9 rounded-full object-cover border" />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                            <User className="w-5 h-5 text-muted-foreground" />
+                          <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">
+                            {pName.charAt(0)}
                           </div>
                         )}
-                        <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">ESPECIALISTA</span>
-                          <span className="text-sm font-medium leading-none mt-1">{pName}</span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">ESPECIALISTA</span>
+                          <span className="text-xs font-bold leading-tight text-foreground truncate">{pName}</span>
+                          <span className="text-[11px] text-muted-foreground truncate">{apt.type}</span>
                         </div>
                       </div>
 
+                      {/* Modality Badge */}
+                      <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {apt.modality === 'online' || apt.meeting_link ? (
+                          <>
+                            <Video className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Videollamada ({apt.meeting_platform || 'En línea'})</span>
+                          </>
+                        ) : (
+                          <>
+                            <MapPin className="w-3.5 h-3.5 text-sky-600" />
+                            <span className="truncate">{apt.location || 'Consultorio'}</span>
+                          </>
+                        )}
+                      </div>
+
                       {apt.status !== 'cancelled' && !isPast && isExpired && (
-                        <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex gap-2 text-[11px] text-amber-800 leading-normal animate-fade-in">
-                          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
-                          <div>
-                            <strong>Plazo de cancelación expirado</strong> (límite: {policyHours}h antes). Comunícate con tu especialista si requieres cambios.
-                          </div>
+                        <div className="mt-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-2 text-[11px] text-amber-800 leading-normal">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 mt-0.5" />
+                          <span>Límite de cancelación ({policyHours}h) cumplido.</span>
                         </div>
                       )}
                     </CardContent>
                     
                     {apt.status !== 'cancelled' && !isPast && (
-                      <CardFooter className="p-4 bg-muted/10 border-t border-border/40 flex flex-col gap-2">
+                      <CardFooter className="p-3.5 bg-muted/10 border-t border-border/40 flex flex-col gap-2">
                         {apt.meeting_link && (
                           <Button
-                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-2 text-xs h-9 rounded-lg shadow-sm"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-2 text-xs h-9 rounded-xl shadow-xs"
                             onClick={() => {
-                              if (apt.meeting_link.startsWith('http')) {
+                              if (apt.meeting_link?.startsWith('http')) {
                                 window.open(apt.meeting_link, '_blank');
                               } else {
                                 window.open(`${window.location.origin}${apt.meeting_link}`, '_blank');
                               }
                             }}
                           >
-                            <Video className="w-4 h-4" />
+                            <Video className="w-3.5 h-3.5" />
                             Unirse a Videollamada
                           </Button>
                         )}
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 text-xs h-9 rounded-lg"
+                          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 text-xs h-8 rounded-xl"
                           onClick={() => handleCancelAppointment(apt.id, apt.management_token)}
                           disabled={isExpired || cancelingId === apt.id}
                         >
                           {cancelingId === apt.id ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin animate-spin" />
+                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                           ) : (
-                            <XCircle className="w-4 h-4 mr-2" />
+                            <XCircle className="w-3.5 h-3.5 mr-1.5" />
                           )}
                           Cancelar Cita
                         </Button>
@@ -743,631 +1098,682 @@ export default function Portal() {
                 );
               })}
             </div>
+          ) : (
+            /* LIST / TABLE VIEW */
+            <div className="bg-white rounded-2xl border border-border/60 overflow-hidden shadow-xs animate-fade-in divide-y divide-border/40">
+              {filteredAppointments.map(apt => {
+                const dateObj = parseISO(apt.start_time);
+                const endObj = parseISO(apt.end_time);
+                const isPast = dateObj < new Date() && apt.status !== 'cancelled';
+                const relBadge = !isPast && apt.status !== 'cancelled' ? getRelativeDateBadge(dateObj) : null;
+                const pName = apt.specialist_prefix && apt.specialist_prefix !== 'none' 
+                  ? `${apt.specialist_prefix} ${apt.specialist_name}` 
+                  : apt.specialist_name;
+
+                let statusText = 'Confirmada';
+                let badgeVariant: 'default' | 'secondary' | 'destructive' | 'outline' = 'default';
+                if (apt.status === 'pending') { statusText = 'Pendiente'; badgeVariant = 'secondary'; }
+                if (apt.status === 'cancelled') { statusText = 'Cancelada'; badgeVariant = 'destructive'; }
+                if (isPast) { statusText = 'Completada'; badgeVariant = 'outline'; }
+
+                return (
+                  <div key={apt.id} className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-muted/10 transition-colors">
+                    {/* Left: Date Box & Info */}
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      {/* Date Badge */}
+                      <div className="h-12 w-12 rounded-xl bg-primary/10 text-primary flex flex-col items-center justify-center shrink-0 border border-primary/20">
+                        <span className="text-base font-black leading-none">{format(dateObj, 'd')}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider">{format(dateObj, 'MMM', { locale: es })}</span>
+                      </div>
+
+                      {/* Details */}
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-foreground truncate">{apt.type}</span>
+                          <Badge variant={badgeVariant} className="text-[10px] py-0 px-1.5 font-semibold">{statusText}</Badge>
+                          {relBadge && (
+                            <span className={`text-[10px] px-1.5 py-0 rounded-full font-bold uppercase ${relBadge.variant}`}>
+                              {relBadge.label}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                          <span>{format(dateObj, "HH:mm")} - {format(endObj, "HH:mm")} hrs</span>
+                          <span>•</span>
+                          <span>Esp. {pName}</span>
+                          <span>•</span>
+                          <span>{apt.modality === 'online' || apt.meeting_link ? '🌐 En línea' : `📍 ${apt.location || 'Presencial'}`}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Right: Action Buttons */}
+                    <div className="flex items-center gap-2 w-full md:w-auto justify-end shrink-0">
+                      {apt.status !== 'cancelled' && !isPast && apt.meeting_link && (
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 rounded-xl gap-1.5 shadow-xs"
+                          onClick={() => {
+                            if (apt.meeting_link?.startsWith('http')) {
+                              window.open(apt.meeting_link, '_blank');
+                            } else {
+                              window.open(`${window.location.origin}${apt.meeting_link}`, '_blank');
+                            }
+                          }}
+                        >
+                          <Video className="w-3.5 h-3.5" />
+                          <span>Unirse</span>
+                        </Button>
+                      )}
+
+                      {apt.status !== 'cancelled' && !isPast && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-destructive text-xs h-8 rounded-xl"
+                          onClick={() => handleCancelAppointment(apt.id, apt.management_token)}
+                          disabled={cancelingId === apt.id}
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1" />
+                          <span>Cancelar</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )
         )}
 
-        {/* Tasks Tab Content */}
+        {/* ── TASKS TAB ───────────────────────────────────────────────────────── */}
         {activeTab === 'tasks' && (
           loadingTasks ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : patientTasks.length === 0 ? (
+          ) : filteredTasks.length === 0 ? (
             <Card className="p-12 text-center rounded-2xl border-dashed bg-muted/10 shadow-none">
               <CheckSquare className="w-12 h-12 mx-auto text-muted-foreground opacity-50 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No tienes tareas asignadas</h3>
-              <p className="text-muted-foreground max-w-sm mx-auto">
-                Tu especialista no te ha asignado tareas o ejercicios pendientes para entre sesiones.
+              <h3 className="text-lg font-bold mb-1">No se encontraron tareas</h3>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                {searchTerm 
+                  ? 'No hay tareas que coincidan con tu búsqueda.' 
+                  : taskFilter === 'pending'
+                  ? '¡Excelente! No tienes tareas pendientes.'
+                  : 'Tu especialista no te ha asignado tareas en esta categoría.'}
               </p>
             </Card>
           ) : (
-            <div className="space-y-4">
-              <Card className="p-6 border-border/60 rounded-2xl bg-white shadow-sm">
-                <h3 className="font-bold text-lg mb-1 flex items-center gap-2">
-                  <CheckSquare className="h-5 w-5 text-emerald-600" />
-                  Plan de Acción entre Sesiones
-                </h3>
-                <p className="text-xs text-muted-foreground mb-6">
-                  Marca las tareas conforme las completes para dar seguimiento a tu proceso clínico.
-                </p>
+            <div className="bg-white rounded-2xl border border-border/60 p-5 shadow-xs animate-fade-in space-y-3">
+              <div className="flex items-center justify-between pb-3 border-b border-border/40">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  {taskFilter === 'pending' ? 'Tareas Pendientes' : taskFilter === 'completed' ? 'Tareas Completadas' : 'Todas las Tareas'}
+                </span>
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {filteredTasks.length} {filteredTasks.length === 1 ? 'tarea' : 'tareas'}
+                </span>
+              </div>
 
-                <div className="space-y-3">
-                  {patientTasks.map((t) => (
-                    <div
-                      key={t.id}
-                      onClick={() => toggleTaskCompletion(t.id)}
-                      className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-4 ${
-                        t.completed
-                          ? 'bg-emerald-50/50 border-emerald-200 text-muted-foreground dark:bg-emerald-950/20'
-                          : 'bg-muted/20 border-border/60 hover:border-primary/40 hover:bg-primary/5'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className={`h-6 w-6 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          t.completed ? 'bg-emerald-600 text-white' : 'border-2 border-border bg-white'
-                        }`}>
-                          {t.completed && <Check className="h-4 w-4 stroke-[3]" />}
-                        </div>
-                        <span className={`text-sm font-medium leading-relaxed ${t.completed ? 'line-through opacity-70' : 'text-foreground'}`}>
-                          {t.task}
-                        </span>
-                      </div>
-                      <Badge variant={t.completed ? 'outline' : 'default'} className={`text-[10px] uppercase font-bold shrink-0 ${
-                        t.completed ? 'border-emerald-500/40 text-emerald-700 bg-emerald-50' : 'bg-emerald-600 text-white'
+              <div className="space-y-2.5">
+                {filteredTasks.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => toggleTaskCompletion(t.id)}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-4 ${
+                      t.completed
+                        ? 'bg-emerald-50/40 border-emerald-200 text-muted-foreground'
+                        : 'bg-muted/10 border-border/60 hover:border-primary/40 hover:bg-primary/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`h-5 w-5 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                        t.completed ? 'bg-emerald-600 text-white' : 'border-2 border-border bg-white'
                       }`}>
-                        {t.completed ? 'Completada' : 'Pendiente'}
-                      </Badge>
+                        {t.completed && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                      </div>
+                      <span className={`text-xs md:text-sm font-medium leading-relaxed ${t.completed ? 'line-through opacity-70' : 'text-foreground'}`}>
+                        {t.task}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </Card>
+
+                    <Badge variant={t.completed ? 'outline' : 'default'} className={`text-[10px] uppercase font-bold shrink-0 ${
+                      t.completed ? 'border-emerald-500/40 text-emerald-700 bg-emerald-50' : 'bg-emerald-600 text-white'
+                    }`}>
+                      {t.completed ? 'Completada' : 'Pendiente'}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
             </div>
           )
         )}
 
-        {/* Tests Tab Content */}
+        {/* ── TESTS TAB ───────────────────────────────────────────────────────── */}
         {activeTab === 'tests' && (
           loadingTests ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : assignedTests.length === 0 ? (
+          ) : filteredTests.length === 0 ? (
             <Card className="p-12 text-center rounded-2xl border-dashed bg-muted/10 shadow-none">
               <BrainCircuit className="w-12 h-12 mx-auto text-muted-foreground opacity-50 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No tienes pruebas asignadas</h3>
-              <p className="text-muted-foreground max-w-sm mx-auto">
-                Actualmente no tienes evaluaciones psicométricas asignadas pendientes ni completadas.
+              <h3 className="text-lg font-bold mb-1">No se encontraron evaluaciones</h3>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                {searchTerm 
+                  ? 'No hay pruebas que coincidan con tu búsqueda.' 
+                  : testFilter === 'pending'
+                  ? 'No tienes evaluaciones psicométricas pendientes por responder.'
+                  : 'No tienes evaluaciones registradas en esta categoría.'}
               </p>
             </Card>
+          ) : viewMode === 'grid' ? (
+            /* TESTS GRID */
+            <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3 animate-fade-in">
+              {filteredTests.map(test => {
+                const testCatalog = psychometricTests[test.test_type];
+                const testName = testCatalog ? testCatalog.name : test.test_type.toUpperCase();
+                const testDescription = testCatalog ? testCatalog.description : 'Evaluación psicométrica asignada por tu especialista.';
+                const isPending = test.status === 'pending';
+
+                return (
+                  <Card key={test.id} className="rounded-2xl overflow-hidden shadow-xs flex flex-col border-border/60 bg-white hover:shadow-md transition-shadow">
+                    <CardHeader className="p-5 pb-0">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className={`p-2 rounded-xl ${isPending ? 'bg-primary/10 text-primary' : 'bg-emerald-50 text-emerald-600'}`}>
+                          <BrainCircuit className="w-4 h-4" />
+                        </div>
+                        <Badge variant={isPending ? 'secondary' : 'outline'} className={`text-xs font-semibold ${
+                          isPending ? 'text-primary bg-primary/10' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        }`}>
+                          {isPending ? 'Por Resolver' : 'Completada'}
+                        </Badge>
+                      </div>
+                      <CardTitle className="text-base font-bold mb-1 leading-snug">
+                        {testName}
+                      </CardTitle>
+                    </CardHeader>
+
+                    <CardContent className="p-5 pt-2 flex-1 flex flex-col justify-between">
+                      <p className="text-xs text-muted-foreground leading-normal mb-3 line-clamp-3">
+                        {testDescription}
+                      </p>
+                      
+                      {!isPending && test.score !== undefined && test.score !== null && (
+                        <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200/60 flex items-center justify-between text-xs text-emerald-900 mb-2">
+                          <span className="font-bold">Puntuación:</span>
+                          <span className="font-extrabold bg-white px-2 py-0.5 rounded-lg border border-emerald-200">
+                            {test.score} pts
+                          </span>
+                        </div>
+                      )}
+
+                      <span className="text-[10px] text-muted-foreground pt-2 border-t border-border/40">
+                        Asignada: {format(parseISO(test.created_at), "d 'de' MMMM, yyyy", { locale: es })}
+                      </span>
+                    </CardContent>
+
+                    <CardFooter className="p-3.5 bg-muted/10 border-t border-border/40">
+                      {isPending ? (
+                        <Button 
+                          className="w-full gap-1.5 bg-primary hover:bg-primary/95 text-white font-bold text-xs h-9 rounded-xl shadow-xs"
+                          onClick={() => window.open(`/t/${test.token}`, '_blank')}
+                        >
+                          <span>Resolver Evaluación</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Button>
+                      ) : (
+                        <Button 
+                          variant="outline"
+                          className="w-full gap-1.5 text-xs h-9 rounded-xl font-semibold border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => window.open(`/t/${test.token}`, '_blank')}
+                        >
+                          <span>Ver Respuestas</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </CardFooter>
+                  </Card>
+                );
+              })}
+            </div>
           ) : (
-            <div className="space-y-10">
-              {/* Pending Tests Section */}
-              {assignedTests.filter(t => t.status === 'pending').length > 0 && (
-                <div>
-                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-foreground">
-                    <FileText className="h-5 w-5 text-primary" />
-                    <span>Evaluaciones Pendientes</span>
-                  </h2>
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                    {assignedTests.filter(t => t.status === 'pending').map(test => {
-                      const testCatalog = psychometricTests[test.test_type];
-                      const testName = testCatalog ? testCatalog.name : test.test_type.toUpperCase();
-                      const testDescription = testCatalog ? testCatalog.description : 'Evaluación psicométrica asignada por tu especialista.';
-                      const testQuestions = testCatalog ? testCatalog.questions.length : null;
+            /* TESTS LIST */
+            <div className="bg-white rounded-2xl border border-border/60 overflow-hidden shadow-xs animate-fade-in divide-y divide-border/40">
+              {filteredTests.map(test => {
+                const testCatalog = psychometricTests[test.test_type];
+                const testName = testCatalog ? testCatalog.name : test.test_type.toUpperCase();
+                const isPending = test.status === 'pending';
 
-                      return (
-                        <Card key={test.id} className="rounded-xl overflow-hidden shadow-sm flex flex-col border-border/60 hover:shadow-md transition-shadow">
-                          <CardHeader className="p-5 pb-0">
-                            <div className="flex justify-between items-start mb-4">
-                              <div className="bg-primary/5 text-primary p-2 rounded-lg">
-                                <BrainCircuit className="w-5 h-5" />
-                              </div>
-                              <Badge variant="secondary" className="font-semibold text-primary bg-primary/10">Pendiente</Badge>
-                            </div>
-                            <CardTitle className="text-lg font-bold mb-1 leading-snug">
-                              {testName}
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent className="p-5 pt-3 flex-1 flex flex-col justify-between">
-                            <p className="text-sm text-muted-foreground leading-normal mb-4">
-                              {testDescription}
-                            </p>
+                return (
+                  <div key={test.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`p-2.5 rounded-xl shrink-0 ${isPending ? 'bg-primary/10 text-primary' : 'bg-emerald-50 text-emerald-600'}`}>
+                        <BrainCircuit className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-foreground">{testName}</span>
+                          <Badge variant={isPending ? 'secondary' : 'outline'} className={`text-[10px] py-0 px-1.5 ${
+                            isPending ? 'text-primary bg-primary/10' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          }`}>
+                            {isPending ? 'Por Resolver' : 'Completada'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Asignada el {format(parseISO(test.created_at), "d 'de' MMMM, yyyy", { locale: es })}
+                        </p>
+                      </div>
+                    </div>
 
-                            <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground/80 mt-auto pt-4 border-t border-border/40">
-                              {testQuestions && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3.5 h-3.5 text-primary/70" />
-                                  {testQuestions} reactivos
-                                </span>
-                              )}
-                              <span>
-                                Asignada: {format(parseISO(test.created_at), "d 'de' MMM", { locale: es })}
-                              </span>
-                            </div>
-                          </CardContent>
-                          <CardFooter className="p-4 bg-muted/10 border-t border-border/40">
-                            <Button 
-                              className="w-full gap-2 bg-primary hover:bg-primary/95 text-white font-semibold transition-all hover:scale-[1.01]"
-                              onClick={() => window.open(`/t/${test.token}`, '_blank')}
-                            >
-                              <span>Resolver Prueba</span>
-                              <ArrowRight className="w-4 h-4" />
-                            </Button>
-                          </CardFooter>
-                        </Card>
-                      );
-                    })}
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
+                      <Button
+                        size="sm"
+                        variant={isPending ? 'default' : 'outline'}
+                        className={`text-xs h-8 rounded-xl font-bold gap-1.5 ${
+                          isPending ? 'bg-primary hover:bg-primary/95 text-white' : 'border-emerald-200 text-emerald-700'
+                        }`}
+                        onClick={() => window.open(`/t/${test.token}`, '_blank')}
+                      >
+                        <span>{isPending ? 'Resolver' : 'Ver'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Completed Tests Section */}
-              {assignedTests.filter(t => t.status === 'completed' || t.status === 'scored').length > 0 && (
-                <div>
-                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-foreground">
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                    <span>Evaluaciones Completadas</span>
-                  </h2>
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                    {assignedTests.filter(t => t.status === 'completed' || t.status === 'scored').map(test => {
-                      const testCatalog = psychometricTests[test.test_type];
-                      const testName = testCatalog ? testCatalog.name : test.test_type.toUpperCase();
-                      const completedDate = test.completed_at ? parseISO(test.completed_at) : null;
-
-                      return (
-                        <Card key={test.id} className="rounded-xl overflow-hidden shadow-sm flex flex-col border-border/60 bg-[#FAFAFA]/65">
-                          <CardHeader className="p-5 pb-0">
-                            <div className="flex justify-between items-start mb-4">
-                              <div className="bg-green-500/10 text-green-600 p-2 rounded-lg">
-                                <Check className="w-5 h-5" />
-                              </div>
-                              <Badge variant="outline" className="font-semibold border-green-200 bg-green-50 text-green-700">Completada</Badge>
-                            </div>
-                            <CardTitle className="text-lg font-bold mb-1 leading-snug">
-                              {testName}
-                            </CardTitle>
-                            {completedDate && (
-                              <CardDescription className="text-xs text-muted-foreground">
-                                Resuelta el {format(completedDate, "d 'de' MMMM, yyyy", { locale: es })}
-                              </CardDescription>
-                            )}
-                          </CardHeader>
-                          
-                          <CardContent className="p-5 pt-4 flex-1">
-                            <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/10 flex flex-col gap-2.5 text-sm text-green-900 leading-normal">
-                              <div className="flex items-center justify-between font-semibold border-b border-green-500/10 pb-2">
-                                <span className="flex items-center gap-1.5 text-green-800 text-xs font-bold uppercase tracking-wider">
-                                  Resultado
-                                </span>
-                                <span className="bg-green-100 text-green-800 px-2.5 py-0.5 rounded-full text-xs font-extrabold shadow-sm">
-                                  {test.score !== undefined && test.score !== null ? `${test.score} pts` : 'Evaluando'}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-green-700 uppercase font-bold block tracking-widest mb-0.5 opacity-80">INTERPRETACIÓN</span>
-                                <span className="font-semibold text-green-900 text-sm leading-relaxed">
-                                  {test.interpretation || 'Las respuestas han sido enviadas correctamente a tu especialista para su evaluación.'}
-                                </span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           )
         )}
 
-        {/* Consents Tab Content */}
+        {/* ── CONSENTS TAB ────────────────────────────────────────────────────── */}
         {activeTab === 'consents' && (
           loadingConsents ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : consents.length === 0 ? (
+          ) : filteredConsents.length === 0 ? (
             <Card className="p-12 text-center rounded-2xl border-dashed bg-muted/10 shadow-none">
               <FileSignature className="w-12 h-12 mx-auto text-muted-foreground opacity-50 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No tienes documentos asignados</h3>
-              <p className="text-muted-foreground max-w-sm mx-auto">
-                Tu psicólogo no ha solicitado ninguna firma de consentimiento remoto por el momento.
+              <h3 className="text-lg font-bold mb-1">No se encontraron documentos</h3>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                {searchTerm 
+                  ? 'No hay documentos que coincidan con tu búsqueda.' 
+                  : consentFilter === 'pending'
+                  ? 'No tienes consentimientos pendientes de firma.'
+                  : 'No tienes documentos en esta categoría.'}
               </p>
             </Card>
+          ) : viewMode === 'grid' ? (
+            /* CONSENTS GRID */
+            <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3 animate-fade-in">
+              {filteredConsents.map(consent => {
+                const isSigned = !!consent.signed_at;
+                const specialistName = consent.specialist_prefix && consent.specialist_prefix !== 'none'
+                  ? `${consent.specialist_prefix} ${consent.specialist_name}`
+                  : consent.specialist_name || 'Especialista';
+
+                return (
+                  <Card key={consent.id} className={`rounded-2xl overflow-hidden shadow-xs flex flex-col border-border/60 ${
+                    isSigned ? 'bg-white' : 'bg-amber-50/20 border-amber-200'
+                  }`}>
+                    <CardHeader className="p-5 pb-0">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className={`p-2 rounded-xl ${isSigned ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-100 text-amber-700'}`}>
+                          <FileSignature className="w-4 h-4" />
+                        </div>
+                        <Badge variant={isSigned ? 'outline' : 'secondary'} className={`text-xs font-semibold ${
+                          isSigned ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {isSigned ? 'Firmado' : 'Firma Pendiente'}
+                        </Badge>
+                      </div>
+                      <CardTitle className="text-base font-bold mb-1 leading-snug">
+                        {FORM_TYPE_LABELS[consent.form_type] || consent.form_type}
+                      </CardTitle>
+                      <CardDescription className="text-xs text-muted-foreground">
+                        Especialista: <span className="font-medium text-foreground">{specialistName}</span>
+                      </CardDescription>
+                    </CardHeader>
+
+                    <CardContent className="p-5 pt-3 flex-1 flex flex-col justify-between">
+                      <p className="text-xs text-muted-foreground leading-normal mb-3 line-clamp-3">
+                        {consent.consent_text}
+                      </p>
+
+                      {isSigned && consent.signature_hash && (
+                        <div className="p-2 rounded-lg bg-muted/20 text-[10px] text-muted-foreground font-mono truncate mb-2">
+                          SHA-256: {consent.signature_hash.slice(0, 16)}...
+                        </div>
+                      )}
+
+                      <span className="text-[10px] text-muted-foreground pt-2 border-t border-border/40">
+                        {isSigned 
+                          ? `Firmado el ${format(parseISO(consent.signed_at!), "d 'de' MMMM, yyyy", { locale: es })}`
+                          : `Solicitado el ${format(parseISO(consent.created_at), "d 'de' MMMM, yyyy", { locale: es })}`}
+                      </span>
+                    </CardContent>
+
+                    <CardFooter className="p-3.5 bg-muted/10 border-t border-border/40">
+                      {isSigned ? (
+                        <Button 
+                          variant="outline"
+                          className="w-full gap-1.5 text-xs h-9 rounded-xl font-bold border-border/60 hover:bg-muted/20"
+                          onClick={() => generateConsentPDF(consent)}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Descargar PDF</span>
+                        </Button>
+                      ) : (
+                        <Button 
+                          className="w-full gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 rounded-xl shadow-xs"
+                          onClick={() => {
+                            setSigningConsent(consent);
+                            setSignatureDataUrl(null);
+                          }}
+                        >
+                          <span>Leer y Firmar</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </CardFooter>
+                  </Card>
+                );
+              })}
+            </div>
           ) : (
-            <div className="space-y-10">
-              {/* Pending Consents Section */}
-              {consents.filter(c => !c.signed_at).length > 0 && (
-                <div>
-                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-foreground">
-                    <FileSignature className="h-5 w-5 text-amber-500" />
-                    <span>Documentos Pendientes de Firma</span>
-                  </h2>
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                    {consents.filter(c => !c.signed_at).map(consent => {
-                      const specialistName = consent.specialist_prefix && consent.specialist_prefix !== 'none'
-                        ? `${consent.specialist_prefix} ${consent.specialist_name}`
-                        : consent.specialist_name || 'Especialista';
+            /* CONSENTS LIST */
+            <div className="bg-white rounded-2xl border border-border/60 overflow-hidden shadow-xs animate-fade-in divide-y divide-border/40">
+              {filteredConsents.map(consent => {
+                const isSigned = !!consent.signed_at;
+                const specialistName = consent.specialist_prefix && consent.specialist_prefix !== 'none'
+                  ? `${consent.specialist_prefix} ${consent.specialist_name}`
+                  : consent.specialist_name || 'Especialista';
 
-                      return (
-                        <Card key={consent.id} className="rounded-xl overflow-hidden shadow-sm flex flex-col border-amber-200 bg-amber-50/10 hover:shadow-md transition-shadow">
-                          <CardHeader className="p-5 pb-0">
-                            <div className="flex justify-between items-start mb-4">
-                              <div className="bg-amber-500/10 text-amber-600 p-2 rounded-lg">
-                                <FileSignature className="w-5 h-5" />
-                              </div>
-                              <Badge variant="secondary" className="font-semibold text-amber-700 bg-amber-100/80 border border-amber-200 animate-pulse">
-                                Firma Pendiente
-                              </Badge>
-                            </div>
-                            <CardTitle className="text-lg font-bold mb-1 leading-snug">
-                              {FORM_TYPE_LABELS[consent.form_type] || consent.form_type}
-                            </CardTitle>
-                            <CardDescription className="text-xs text-muted-foreground">
-                              Asignado por: <span className="font-medium text-foreground/80">{specialistName}</span>
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="p-5 pt-3 flex-1 flex flex-col justify-between">
-                            <p className="text-sm text-muted-foreground leading-normal mb-4 line-clamp-3">
-                              {consent.consent_text}
-                            </p>
-                            <div className="flex items-center text-xs font-semibold text-muted-foreground/80 mt-auto pt-4 border-t border-border/40">
-                              <span>Solicitado: {format(parseISO(consent.created_at), "d 'de' MMM, yyyy", { locale: es })}</span>
-                            </div>
-                          </CardContent>
-                          <CardFooter className="p-4 bg-amber-50/20 border-t border-amber-100">
-                            <Button 
-                              className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold transition-all hover:scale-[1.01]"
-                              onClick={() => {
-                                setSigningConsent(consent);
-                                setSignatureDataUrl(null);
-                              }}
-                            >
-                              <span>Leer y Firmar</span>
-                              <ArrowRight className="w-4 h-4" />
-                            </Button>
-                          </CardFooter>
-                        </Card>
-                      );
-                    })}
+                return (
+                  <div key={consent.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`p-2.5 rounded-xl shrink-0 ${isSigned ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-100 text-amber-700'}`}>
+                        <FileSignature className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-foreground">{FORM_TYPE_LABELS[consent.form_type] || consent.form_type}</span>
+                          <Badge variant={isSigned ? 'outline' : 'secondary'} className={`text-[10px] py-0 px-1.5 ${
+                            isSigned ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {isSigned ? 'Firmado' : 'Por Firmar'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {isSigned 
+                            ? `Firmado el ${format(parseISO(consent.signed_at!), "d 'de' MMM, yyyy", { locale: es })}`
+                            : `Solicitado por ${specialistName}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
+                      {isSigned ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-8 rounded-xl font-semibold gap-1.5"
+                          onClick={() => generateConsentPDF(consent)}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>PDF</span>
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-8 rounded-xl font-bold gap-1.5"
+                          onClick={() => {
+                            setSigningConsent(consent);
+                            setSignatureDataUrl(null);
+                          }}
+                        >
+                          <span>Firmar</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Completed Consents Section */}
-              {consents.filter(c => c.signed_at).length > 0 && (
-                <div>
-                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-foreground">
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                    <span>Documentos Firmados</span>
-                  </h2>
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                    {consents.filter(c => c.signed_at).map(consent => {
-                      const specialistName = consent.specialist_prefix && consent.specialist_prefix !== 'none'
-                        ? `${consent.specialist_prefix} ${consent.specialist_name}`
-                        : consent.specialist_name || 'Especialista';
-                      const signedDate = consent.signed_at ? parseISO(consent.signed_at) : new Date();
-
-                      return (
-                        <Card key={consent.id} className="rounded-xl overflow-hidden shadow-sm flex flex-col border-border/60 bg-[#FAFAFA]/65">
-                          <CardHeader className="p-5 pb-0">
-                            <div className="flex justify-between items-start mb-4">
-                              <div className="bg-green-500/10 text-green-600 p-2 rounded-lg">
-                                <Check className="w-5 h-5" />
-                              </div>
-                              <Badge variant="outline" className="font-semibold border-green-200 bg-green-50 text-green-700">Firmado</Badge>
-                            </div>
-                            <CardTitle className="text-lg font-bold mb-1 leading-snug">
-                              {FORM_TYPE_LABELS[consent.form_type] || consent.form_type}
-                            </CardTitle>
-                            <CardDescription className="text-xs text-muted-foreground">
-                              Asignado por: <span className="font-medium text-foreground/80">{specialistName}</span>
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="p-5 pt-3 flex-1 flex flex-col justify-between">
-                            <div className="p-3 rounded-lg bg-green-500/5 border border-green-500/10 flex flex-col gap-1.5 text-xs text-green-800 leading-normal mb-4">
-                              <p className="font-medium text-green-900">Hash de Firma Digital:</p>
-                              <code className="bg-white/80 p-1.5 rounded border text-[10px] break-all font-mono font-bold leading-normal">
-                                {consent.signature_hash || 'NOM-024 SECURE HASH'}
-                              </code>
-                            </div>
-                            <div className="flex items-center text-xs font-semibold text-muted-foreground/80 mt-auto pt-4 border-t border-border/40">
-                              <span>Firmado el: {format(signedDate, "d 'de' MMMM, yyyy", { locale: es })}</span>
-                            </div>
-                          </CardContent>
-                          <CardFooter className="p-4 bg-muted/10 border-t border-border/40">
-                            <Button 
-                              variant="outline"
-                              className="w-full gap-2 border-border/80 text-foreground hover:bg-muted font-semibold transition-all"
-                              onClick={() => generatePortalPDF(consent)}
-                            >
-                              <Download className="w-4 h-4" />
-                              <span>Descargar PDF</span>
-                            </Button>
-                          </CardFooter>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           )
         )}
 
-        {/* Profile Tab Content */}
+        {/* ── PROFILE TAB ─────────────────────────────────────────────────────── */}
         {activeTab === 'profile' && (
           loadingProfile ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="space-y-6 animate-fade-in">
-              <form onSubmit={handleSaveProfile} className="space-y-6">
-                {/* Personal Information */}
-                <Card className="rounded-2xl border-border/60 shadow-sm bg-white overflow-hidden">
-                  <CardHeader className="p-6 pb-2">
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <User className="w-5 h-5 text-primary" />
-                      <span>Datos Personales</span>
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      Información registrada en tu expediente clínico conforme a la NOM-024.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold">Nombre Completo</Label>
-                        <Input
-                          value={patientProfile?.name || session.name}
-                          disabled
-                          className="bg-muted/30 rounded-xl"
-                        />
+            <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
+              <Card className="rounded-3xl border-border/60 shadow-sm overflow-hidden bg-white">
+                <CardHeader className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-6 border-b border-border/40">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-2xl bg-primary text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                      {session.name.charAt(0)}
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl font-bold">{session.name}</CardTitle>
+                      <CardDescription className="text-xs text-muted-foreground mt-0.5">
+                        Expediente Confidencial de Paciente
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="p-6 md:p-8">
+                  <form onSubmit={handleSaveProfile} className="space-y-6">
+                    {/* Readonly Basic Contact */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-muted/20 border border-border/40">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Correo Registrado</Label>
+                        <div className="text-sm font-semibold text-foreground mt-1 flex items-center gap-1.5">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                          <span>{session.email}</span>
+                        </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold">Correo Electrónico</Label>
-                        <Input
-                          value={patientProfile?.email || session.email}
-                          disabled
-                          className="bg-muted/30 rounded-xl"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold">Teléfono Celular</Label>
-                        <Input
-                          value={patientProfile?.phone || session.phone}
-                          disabled
-                          className="bg-muted/30 rounded-xl"
-                        />
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Teléfono Registrado</Label>
+                        <div className="text-sm font-semibold text-foreground mt-1 flex items-center gap-1.5">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span>{session.phone || 'No registrado'}</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="prof-dob" className="text-xs font-semibold">Fecha de Nacimiento</Label>
-                        <Input
-                          id="prof-dob"
-                          type="date"
-                          value={profileForm.birth_date}
-                          onChange={(e) => setProfileForm(prev => ({ ...prev, birth_date: e.target.value }))}
-                          className="rounded-xl"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="prof-gender" className="text-xs font-semibold">Género</Label>
-                        <select
-                          id="prof-gender"
-                          value={profileForm.gender}
-                          onChange={(e) => setProfileForm(prev => ({ ...prev, gender: e.target.value }))}
-                          className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        >
-                          <option value="">Seleccionar</option>
-                          <option value="femenino">Femenino</option>
-                          <option value="masculino">Masculino</option>
-                          <option value="no_binario">No binario</option>
-                          <option value="otro">Otro</option>
-                          <option value="prefiero_no_decir">Prefiero no especificar</option>
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="prof-occ" className="text-xs font-semibold">Ocupación</Label>
-                        <Input
-                          id="prof-occ"
-                          value={profileForm.occupation}
-                          onChange={(e) => setProfileForm(prev => ({ ...prev, occupation: e.target.value }))}
-                          placeholder="Ej. Ingeniero, Diseñador..."
-                          className="rounded-xl"
-                        />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Emergency Contact */}
-                <Card className="rounded-2xl border-border/60 shadow-sm bg-white overflow-hidden">
-                  <CardHeader className="p-6 pb-2">
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <HeartHandshake className="w-5 h-5 text-rose-500" />
-                      <span>Contacto de Emergencia</span>
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      Persona de confianza a quien contactar exclusivamente en caso de urgencia o crisis.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="prof-emg-name" className="text-xs font-semibold">Nombre del Contacto</Label>
-                        <Input
-                          id="prof-emg-name"
-                          value={profileForm.emergency_contact_name}
-                          onChange={(e) => setProfileForm(prev => ({ ...prev, emergency_contact_name: e.target.value }))}
-                          placeholder="Nombre completo"
-                          className="rounded-xl"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="prof-emg-phone" className="text-xs font-semibold">Teléfono</Label>
-                        <Input
-                          id="prof-emg-phone"
-                          type="tel"
-                          value={profileForm.emergency_contact_phone}
-                          onChange={(e) => setProfileForm(prev => ({ ...prev, emergency_contact_phone: e.target.value }))}
-                          placeholder="10 dígitos"
-                          className="rounded-xl"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="prof-emg-rel" className="text-xs font-semibold">Parentesco / Relación</Label>
-                        <select
-                          id="prof-emg-rel"
-                          value={profileForm.emergency_contact_relationship}
-                          onChange={(e) => setProfileForm(prev => ({ ...prev, emergency_contact_relationship: e.target.value }))}
-                          className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        >
-                          <option value="">Seleccionar parentesco</option>
-                          <option value="pareja">Pareja / Cónyuge</option>
-                          <option value="madre">Madre</option>
-                          <option value="padre">Padre</option>
-                          <option value="hermano_a">Hermano / Hermana</option>
-                          <option value="hijo_a">Hijo / Hija</option>
-                          <option value="familiar">Otro familiar</option>
-                          <option value="amigo_a">Amigo / Amiga</option>
-                          <option value="otro">Otro</option>
-                        </select>
+                    {/* Personal Demographic Data */}
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <User className="h-4 w-4" /> Datos Demográficos
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Fecha de Nacimiento</Label>
+                          <Input
+                            type="date"
+                            value={profileForm.birth_date}
+                            onChange={e => setProfileForm(prev => ({ ...prev, birth_date: e.target.value }))}
+                            className="rounded-xl h-10 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Género</Label>
+                          <select
+                            value={profileForm.gender}
+                            onChange={e => setProfileForm(prev => ({ ...prev, gender: e.target.value }))}
+                            className="w-full h-10 px-3 rounded-xl border border-input bg-background text-xs"
+                          >
+                            <option value="">Selecciona una opción</option>
+                            <option value="femenino">Femenino</option>
+                            <option value="masculino">Masculino</option>
+                            <option value="no_binario">No binario</option>
+                            <option value="otro">Otro / Prefiero no decir</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label className="text-xs">Ocupación / Profesión</Label>
+                          <Input
+                            placeholder="Ej. Diseñador, Estudiante, etc."
+                            value={profileForm.occupation}
+                            onChange={e => setProfileForm(prev => ({ ...prev, occupation: e.target.value }))}
+                            className="rounded-xl h-10 text-xs"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
 
-                {/* Reason for Consultation */}
-                <Card className="rounded-2xl border-border/60 shadow-sm bg-white overflow-hidden">
-                  <CardHeader className="p-6 pb-2">
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-primary" />
-                      <span>Motivo de Consulta</span>
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      Notas sobre tus motivos u objetivos para tu proceso terapéutico.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6">
-                    <textarea
-                      rows={3}
-                      value={profileForm.reason_for_consultation}
-                      onChange={(e) => setProfileForm(prev => ({ ...prev, reason_for_consultation: e.target.value }))}
-                      placeholder="Motivo principal o temas a trabajar..."
-                      className="w-full rounded-xl border border-input bg-background p-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    />
-                  </CardContent>
-                  <CardFooter className="p-6 bg-muted/10 border-t border-border/40 flex justify-end">
+                    {/* Emergency Contact */}
+                    <div className="space-y-4 pt-4 border-t border-border/40">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <HeartHandshake className="h-4 w-4" /> Contacto de Emergencia
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label className="text-xs">Nombre de Persona de Confianza</Label>
+                          <Input
+                            placeholder="Nombre completo"
+                            value={profileForm.emergency_contact_name}
+                            onChange={e => setProfileForm(prev => ({ ...prev, emergency_contact_name: e.target.value }))}
+                            className="rounded-xl h-10 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Teléfono de Emergencia</Label>
+                          <Input
+                            placeholder="10 dígitos"
+                            value={profileForm.emergency_contact_phone}
+                            onChange={e => setProfileForm(prev => ({ ...prev, emergency_contact_phone: e.target.value }))}
+                            className="rounded-xl h-10 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Parentesco / Relación</Label>
+                          <select
+                            value={profileForm.emergency_contact_relationship}
+                            onChange={e => setProfileForm(prev => ({ ...prev, emergency_contact_relationship: e.target.value }))}
+                            className="w-full h-10 px-3 rounded-xl border border-input bg-background text-xs"
+                          >
+                            <option value="">Selecciona relación</option>
+                            <option value="pareja">Pareja / Cónyuge</option>
+                            <option value="madre">Madre</option>
+                            <option value="padre">Padre</option>
+                            <option value="hermano_a">Hermano / Hermana</option>
+                            <option value="hijo_a">Hijo / Hija</option>
+                            <option value="familiar">Familiar</option>
+                            <option value="amigo_a">Amigo / Amiga</option>
+                            <option value="otro">Otro</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Reason */}
+                    <div className="space-y-1.5 pt-4 border-t border-border/40">
+                      <Label className="text-xs">Motivo Principal de Consulta</Label>
+                      <textarea
+                        rows={3}
+                        placeholder="Describe brevemente tus principales motivos de atención..."
+                        value={profileForm.reason_for_consultation}
+                        onChange={e => setProfileForm(prev => ({ ...prev, reason_for_consultation: e.target.value }))}
+                        className="w-full p-3 rounded-xl border border-input bg-background text-xs resize-none"
+                      />
+                    </div>
+
                     <Button
                       type="submit"
                       disabled={isSavingProfile}
-                      className="rounded-xl font-bold gap-2 px-6 shadow-sm"
+                      className="w-full rounded-xl font-bold h-11 text-xs gap-2 bg-primary hover:bg-primary/95 text-white shadow-sm"
                     >
                       {isSavingProfile ? (
                         <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          <span>Guardando...</span>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Guardando cambios...</span>
                         </>
                       ) : (
                         <>
-                          <Save className="w-4 h-4" />
-                          <span>Guardar Cambios</span>
+                          <Save className="h-4 w-4" />
+                          <span>Guardar y Actualizar Perfil</span>
                         </>
                       )}
                     </Button>
-                  </CardFooter>
-                </Card>
-              </form>
+                  </form>
+                </CardContent>
+              </Card>
             </div>
           )
         )}
       </main>
 
-      {/* Remote Signature Modal */}
+      {/* ── MODAL: SIGN CONSENT ───────────────────────────────────────────────── */}
       {signingConsent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity">
-          <div className="relative w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-border/50 flex justify-between items-start">
-              <div>
-                <h3 className="text-xl font-bold tracking-tight">
-                  Firmar {FORM_TYPE_LABELS[signingConsent.form_type] || signingConsent.form_type}
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Asignado por: <span className="font-semibold text-foreground/80">
-                    {signingConsent.specialist_prefix && signingConsent.specialist_prefix !== 'none'
-                      ? `${signingConsent.specialist_prefix} ${signingConsent.specialist_name}`
-                      : signingConsent.specialist_name || 'Especialista'}
-                  </span>
-                </p>
-              </div>
-              <button 
-                onClick={() => {
-                  setSigningConsent(null);
-                  setSignatureDataUrl(null);
-                }}
-                className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted/80 transition-colors"
-              >
-                <XCircle className="h-6 w-6" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto flex-1 space-y-6">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">Términos del Consentimiento</span>
-                  <Badge variant="outline" className="text-[10px] gap-1 px-2 py-0.5 rounded-full border border-primary/20 bg-primary/5 text-primary">
-                    Cumplimiento NOM-024
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <Card className="max-w-xl w-full rounded-3xl overflow-hidden shadow-2xl border-border/60 bg-white max-h-[90vh] flex flex-col">
+            <CardHeader className="p-6 border-b border-border/40">
+              <div className="flex justify-between items-start">
+                <div className="space-y-1">
+                  <Badge variant="outline" className="text-[10px] font-bold text-amber-700 bg-amber-50 border-amber-200">
+                    Firma Electrónica NOM-024
                   </Badge>
+                  <CardTitle className="text-lg font-bold text-foreground">
+                    {FORM_TYPE_LABELS[signingConsent.form_type] || signingConsent.form_type}
+                  </CardTitle>
                 </div>
-                <div className="p-4 rounded-xl bg-muted/30 border text-sm font-mono leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto bg-[#FDFCFB]">
-                  {signingConsent.consent_text}
-                </div>
+                <Button variant="ghost" size="icon" onClick={() => setSigningConsent(null)} className="rounded-full">
+                  <XCircle className="h-5 w-5 text-muted-foreground" />
+                </Button>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-6 overflow-y-auto space-y-4 text-xs leading-relaxed text-muted-foreground">
+              <div className="p-4 rounded-2xl bg-muted/20 border border-border/40 max-h-48 overflow-y-auto whitespace-pre-wrap">
+                {signingConsent.consent_text}
               </div>
 
-              {/* Signature Section */}
-              <div className="space-y-3">
-                <span className="text-sm font-semibold block">Dibuja tu firma digital abajo:</span>
-                {signatureDataUrl ? (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-green-200 bg-green-50/50 p-4 flex items-center gap-3">
-                      <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 animate-bounce" />
-                      <div>
-                        <p className="text-sm font-medium text-green-800">Firma capturada correctamente</p>
-                        <p className="text-xs text-green-700">Haz click en "Limpiar" para volver a firmar</p>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-[#FAFAFA] border rounded-xl flex justify-center">
-                      <img src={signatureDataUrl} alt="Firma del paciente" className="max-h-28 rounded-lg border bg-white shadow-inner p-2" />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSignatureDataUrl(null)}
-                    >
-                      Limpiar y volver a firmar
-                    </Button>
-                  </div>
-                ) : (
-                  <SignaturePad onSign={(dataUrl) => setSignatureDataUrl(dataUrl)} />
-                )}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-foreground">Dibuja tu firma digital abajo:</Label>
+                <div className="border border-border/60 rounded-2xl overflow-hidden bg-[#FAFAFA]">
+                  <SignaturePad
+                    onSign={(dataUrl) => setSignatureDataUrl(dataUrl)}
+                    onClear={() => setSignatureDataUrl(null)}
+                  />
+                </div>
               </div>
-            </div>
+            </CardContent>
 
-            {/* Modal Footer */}
-            <div className="p-6 border-t border-border/50 bg-muted/10 flex justify-end gap-3">
+            <CardFooter className="p-5 bg-muted/10 border-t border-border/40 flex justify-between gap-3">
               <Button
-                type="button"
                 variant="outline"
-                onClick={() => {
-                  setSigningConsent(null);
-                  setSignatureDataUrl(null);
-                }}
-                disabled={isSubmittingSignature}
+                onClick={() => setSigningConsent(null)}
+                className="rounded-xl text-xs"
               >
-                Cerrar
+                Cancelar
               </Button>
               <Button
-                type="button"
+                disabled={!signatureDataUrl || isSubmittingSignature}
                 onClick={handleSignConsent}
-                disabled={isSubmittingSignature || !signatureDataUrl}
-                className="gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold shadow-md shadow-green-600/10"
+                className="rounded-xl font-bold text-xs gap-2 bg-primary hover:bg-primary/95 text-white"
               >
                 {isSubmittingSignature ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Procesando...</>
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Registrando firma...</span>
+                  </>
                 ) : (
-                  <><Check className="h-4 w-4" /> Confirmar y Firmar</>
+                  <>
+                    <FileCheck className="h-4 w-4" />
+                    <span>Aceptar y Firmar Digitalmente</span>
+                  </>
                 )}
               </Button>
-            </div>
-          </div>
+            </CardFooter>
+          </Card>
         </div>
       )}
     </div>
