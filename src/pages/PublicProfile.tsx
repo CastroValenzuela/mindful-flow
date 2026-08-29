@@ -60,10 +60,9 @@ const PublicProfile = () => {
             setLoading(true);
             try {
                 const { data, error } = await supabase
-                    .from('profiles')
+                    .from('public_profiles_view')
                     .select('*')
                     .eq('slug', slug)
-                    .eq('is_public', true)
                     .single();
 
                 if (error || !data) {

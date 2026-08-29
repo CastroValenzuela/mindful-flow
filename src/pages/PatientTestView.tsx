@@ -51,23 +51,22 @@ export default function PatientTestView() {
       try {
         if (!token) throw new Error('Token no válido');
 
-        const { data, error } = await supabase
-          .from('patient_tests')
-          .select('*')
-          .eq('token', token)
-          .single();
+        const { data, error } = await supabase.rpc('get_public_patient_test', {
+          p_token: token
+        });
 
-        if (error) {
-          if (error.code === 'PGRST116') throw new Error('No se encontró la prueba o el enlace ha caducado.');
-          throw error;
+        if (error) throw error;
+        if (!data || !data.success || !data.test) {
+          throw new Error(data?.error || 'No se encontró la prueba o el enlace ha caducado.');
         }
 
-        setTestAssignment(data);
+        const testData = data.test;
+        setTestAssignment(testData);
         
-        if (data.status === 'completed') {
+        if (testData.status === 'completed') {
           setIsSubmitted(true);
         } else {
-          const def = psychometricTests[data.test_type];
+          const def = psychometricTests[testData.test_type];
           if (!def) throw new Error('Definición de prueba no encontrada.');
           setTestDef(def);
         }
@@ -88,7 +87,7 @@ export default function PatientTestView() {
   
   const handleSubmit = async () => {
     // Validate all questions answered
-    if (!testDef) return;
+    if (!testDef || !token) return;
     const unanswered = testDef.questions.filter((q: TestQuestion) => answers[q.id] === undefined);
     if (unanswered.length > 0) {
       toast.error('Por favor responde todas las preguntas antes de enviar.');
@@ -104,18 +103,17 @@ export default function PatientTestView() {
       const evaluated = evaluateTestScore(testDef.id, score);
       const interpretation = evaluated ? evaluated.interpretation : 'Puntaje no interpretado';
 
-      const { error } = await supabase
-        .from('patient_tests')
-        .update({
-          status: 'completed',
-          answers: answers,
-          score: score,
-          interpretation: interpretation,
-          completed_at: new Date().toISOString()
-        })
-        .eq('token', token);
+      const { data, error } = await supabase.rpc('submit_public_patient_test', {
+        p_token: token,
+        p_answers: answers,
+        p_score: score,
+        p_interpretation: interpretation
+      });
 
       if (error) throw error;
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'Error al enviar la prueba');
+      }
 
       setIsSubmitted(true);
       toast.success('Respuestas enviadas correctamente');

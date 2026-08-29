@@ -97,10 +97,9 @@ const BookingPage = () => {
       setLoading(true);
       try {
         const { data, error } = await supabase
-          .from('profiles')
+          .from('public_profiles_view')
           .select('id, full_name, avatar_url, prefix, horario_atencion, slug, current_organization_id, porcentaje_consultorio, reschedule_policy_hours')
           .eq('slug', slug)
-          .eq('is_public', true)
           .single();
 
         if (error || !data) {
