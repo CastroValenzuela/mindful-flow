@@ -492,8 +492,18 @@ export default function Portal() {
     doc.save(`Consentimiento_${consent.form_type}_${session?.name?.replace(/\s+/g, '_') || 'Paciente'}.pdf`);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (session?.accessToken) {
+      try {
+        await supabase.rpc('revoke_portal_session', {
+          p_access_token: session.accessToken
+        });
+      } catch (e) {
+        console.warn('Session revocation warning:', e);
+      }
+    }
     localStorage.removeItem('saudade_patient_session');
+    toast.success('Sesión finalizada con éxito.');
     navigate('/portal/login');
   };
 

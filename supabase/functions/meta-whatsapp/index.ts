@@ -471,10 +471,15 @@ serve(async (req) => {
       const { action } = jsonBody;
 
       if (action === 'send') {
-        const { phone, body, organization_id, patient_id, template_id, template_variables, template_button_variables, language } = jsonBody;
+        let { phone, body, organization_id, patient_id, template_id, template_variables, template_button_variables, language } = jsonBody;
 
-        if (!phone || (!body && !template_id) || !organization_id) {
-          return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: corsHeaders });
+        if (!phone || (!body && !template_id)) {
+          return new Response(JSON.stringify({ error: "Missing required phone or body" }), { status: 400, headers: corsHeaders });
+        }
+
+        if (!organization_id) {
+          const { data: defaultOrg } = await supabaseClient.from("organizations").select("id").limit(1).maybeSingle();
+          organization_id = defaultOrg?.id || '060d026a-0e6f-4b34-9596-5da7d5095e9e';
         }
 
         let metaMsgId = `MOCK_SID_${Math.random().toString(36).substr(2, 9)}`;
