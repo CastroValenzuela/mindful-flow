@@ -251,6 +251,68 @@ serve(async (req) => {
           } else if (!patientId) {
             responseText = "Hola, este número no está registrado en Saudade. Si eres paciente, por favor solicita a tu especialista tu enlace de invitación o código de vinculación.";
             isGeneralFallback = false;
+          } else if (patientId && (body === "Sí, asistiré" || body === "No podré asistir")) {
+            // Find next upcoming appointment
+            const { data: upcomingApt } = await supabaseClient
+              .from("appointments")
+              .select("id, start_time, organization_id, user_id")
+              .eq("patient_id", patientId)
+              .in("status", ["scheduled", "pending"]) // Only unconfirmed ones
+              .gte("start_time", new Date().toISOString())
+              .order("start_time", { ascending: true })
+              .limit(1)
+              .maybeSingle();
+
+            if (upcomingApt) {
+                if (body === "Sí, asistiré") {
+                    await supabaseClient.from("appointments").update({ status: "confirmed" }).eq("id", upcomingApt.id);
+                    responseText = "¡Excelente! Tu cita ha sido confirmada exitosamente. Te esperamos.";
+                } else {
+                    const aptTime = new Date(upcomingApt.start_time).getTime();
+                    const now = Date.now();
+                    const hoursDifference = (aptTime - now) / (1000 * 60 * 60);
+                    
+                    if (hoursDifference >= 12) {
+                        await supabaseClient.from("appointments").update({ status: "cancelled" }).eq("id", upcomingApt.id);
+                        
+                        // Notify psychologist in system
+                        await supabaseClient.from("activity_logs").insert({
+                            profile_id: upcomingApt.user_id,
+                            organization_id: upcomingApt.organization_id,
+                            type: 'cancelation',
+                            title: 'Cita Cancelada por WhatsApp',
+                            description: `Un paciente acaba de cancelar su cita (cumpliendo la política de 12 horas). El espacio ha sido liberado en tu agenda.`
+                        });
+
+                        // Get psychologist slug
+                        const { data: orgData } = await supabaseClient
+                            .from("organizations")
+                            .select("slug")
+                            .eq("id", upcomingApt.organization_id)
+                            .maybeSingle();
+                            
+                        const bookingLink = orgData?.slug ? `https://app.saudade.mx/reservar/${orgData.slug}` : `https://app.saudade.mx`;
+                        responseText = `Entendido. Tu cita ha sido cancelada con éxito y sin penalización. Para elegir un nuevo horario cuando estés listo, entra a nuestro calendario aquí: ${bookingLink}`;
+                    } else {
+                        // Less than 12 hours
+                        
+                        // Notify psychologist in system
+                        await supabaseClient.from("activity_logs").insert({
+                            profile_id: upcomingApt.user_id,
+                            organization_id: upcomingApt.organization_id,
+                            type: 'cancelation',
+                            title: 'Intento de Cancelación Tardía',
+                            description: `Un paciente intentó cancelar su cita con menos de 12h de anticipación. Requiere atención.`
+                        });
+
+                        responseText = "Hemos recibido tu solicitud. Recuerda que nuestra política requiere 12 horas de anticipación para cancelar. Como tu cita es pronto, un coordinador de Saudade te contactará en breve para revisar tu caso.";
+                    }
+                }
+                isGeneralFallback = false;
+            } else {
+                responseText = "No encontramos ninguna cita próxima pendiente de confirmar, pero hemos registrado tu respuesta.";
+                isGeneralFallback = false;
+            }
           } else if (patientId && organizationId && !isJustLinked) {
             const rawPatientName = currentPatient?.name || '';
             const cleanPatientFirstName = rawPatientName 
@@ -409,7 +471,7 @@ serve(async (req) => {
       const { action } = jsonBody;
 
       if (action === 'send') {
-        const { phone, body, organization_id, patient_id, template_id, template_variables } = jsonBody;
+        const { phone, body, organization_id, patient_id, template_id, template_variables, template_button_variables, language } = jsonBody;
 
         if (!phone || (!body && !template_id) || !organization_id) {
           return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: corsHeaders });
@@ -426,8 +488,18 @@ serve(async (req) => {
             // Try template payload first if template_id is specified
             if (template_id) {
               const metaTemplateName = (template_id === 'test' || template_id === 'hello_world') ? 'hello_world' : (template_id.includes('reminder') ? 'reminder' : template_id);
-              // user created most templates in Meta using English (US), except the new one
-              const langCode = template_id === 'recordatorio_inactivid' ? 'es' : 'en_US';
+              
+              // Resolve language code according to template configuration in Meta
+              let langCode = language;
+              if (!langCode) {
+                if (template_id === 'cita_cancelada_psicologo' || template_id === 'cita_reprogramada') {
+                  langCode = 'es_MX';
+                } else if (template_id === 'recordatorio_inactivid') {
+                  langCode = 'es';
+                } else {
+                  langCode = 'en_US';
+                }
+              }
 
               const templatePayload: any = {
                 messaging_product: "whatsapp",
@@ -445,13 +517,12 @@ serve(async (req) => {
                     type: "body",
                     parameters: template_variables.map((v: string) => ({
                       type: "text",
-                      text: v || ""
+                      text: String(v ?? "")
                     }))
                   }
                 ];
               }
 
-              const { template_button_variables } = jsonBody;
               if (template_button_variables && Array.isArray(template_button_variables) && template_button_variables.length > 0) {
                 if (!templatePayload.template.components) {
                   templatePayload.template.components = [];
@@ -462,7 +533,7 @@ serve(async (req) => {
                   index: "0",
                   parameters: template_button_variables.map((v: string) => ({
                     type: "text",
-                    text: v || ""
+                    text: String(v || "reservar")
                   }))
                 });
               }

@@ -476,7 +476,27 @@ const Messages = () => {
                             ? "bg-success/90 text-white rounded-br-md"
                             : "bg-white border border-border rounded-bl-md"
                         )}>
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                          {msg.body.startsWith('[Template:') ? (
+                            <div className="flex flex-col gap-1">
+                              <div className={cn(
+                                "flex items-center gap-1.5 opacity-80 mb-1 border-b pb-1.5",
+                                msg.direction === 'outbound' ? "border-white/20" : "border-border"
+                              )}>
+                                <ClipboardList className="h-3.5 w-3.5" />
+                                <span className="text-[10px] uppercase font-bold tracking-wider">
+                                  Plantilla Automática
+                                </span>
+                              </div>
+                              <p className="text-sm font-medium">
+                                {msg.body.replace(/\[Template:\s*(.+?)\]/, 'Plantilla enviada: $1')}
+                              </p>
+                              <p className="text-[10px] italic opacity-75 mt-1">
+                                El texto final se generó y envió a través de WhatsApp.
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                          )}
                           <div className={cn(
                             "flex items-center justify-end gap-1 mt-1",
                             msg.direction === 'outbound' ? "text-white/70" : "text-muted-foreground"

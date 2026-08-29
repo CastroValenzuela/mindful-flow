@@ -187,7 +187,8 @@ function buildPsychologistEmail({
 
 function buildPatientEmail({
   psychologistName, psychologistTitle, patientName, dateStr, startStr, endStr, tzLabel,
-  typeLabel, meetingLink, meetingPlatform, utcStart, utcEnd, patientTz, modality, location
+  typeLabel, meetingLink, meetingPlatform, utcStart, utcEnd, patientTz, modality, location,
+  managementToken, isNewPatient
 }: Record<string, any>) {
   const titleDisplay = psychologistTitle ? `${psychologistTitle} ` : ''
   const isOnline = modality === 'online' || !!meetingLink
@@ -210,6 +211,19 @@ function buildPatientEmail({
     <div style="margin-top: 24px; text-align: center;">
       <a href="${meetingLink}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #0D9488 0%, #059669 100%); color: #FFFFFF !important; text-decoration: none; font-size: 14px; font-weight: 700; padding: 14px 28px; border-radius: 12px; box-shadow: 0 4px 14px rgba(13, 148, 136, 0.25);">
         Unirse a la Sesión en Línea →
+      </a>
+    </div>
+  ` : ''
+
+  const intakeBlock = (isNewPatient && managementToken) ? `
+    <div style="background: linear-gradient(135deg, #F0FDF4 0%, #E0F2FE 100%); border: 1px solid #BAE6FD; border-radius: 16px; padding: 22px; margin: 24px 0; text-align: center;">
+      <div style="font-size: 24px; margin-bottom: 6px;">📋</div>
+      <div style="font-size: 15px; font-weight: 800; color: #0369A1; margin-bottom: 6px;">Completa tu Ficha de Ingreso Clínico</div>
+      <p style="font-size: 13px; color: #334155; line-height: 1.5; margin: 0 0 16px 0;">
+        Para agilizar tu primera sesión y preparar tu expediente confidencial, por favor completa tu ficha y consentimiento informado (2 min).
+      </p>
+      <a href="https://app.saudade.mx/ingreso/${managementToken}" target="_blank" style="display: inline-block; background: #0284C7; color: #FFFFFF !important; text-decoration: none; font-size: 13px; font-weight: 700; padding: 12px 24px; border-radius: 10px; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
+        Llenar Ficha de Ingreso →
       </a>
     </div>
   ` : ''
@@ -284,6 +298,8 @@ function buildPatientEmail({
         </div>
       </div>
 
+      ${intakeBlock}
+
       ${meetingBtn}
 
       <div class="notice-box">
@@ -317,6 +333,7 @@ serve(async (req) => {
     const payload = await req.json()
     const {
       patientId,
+      managementToken,
       patientName,
       patientEmail,
       patientPhone,
@@ -436,17 +453,30 @@ serve(async (req) => {
     let patEmail = patientEmail;
     let patName = patientName;
     let patPhone = patientPhone || '';
+    let finalPatientId = patientId;
 
-    if (patientId) {
+    if (!finalPatientId && profileData?.current_organization_id && (patEmail || patPhone)) {
+      const { data: matchedId } = await supabase.rpc('find_patient_by_contact', {
+        p_organization_id: profileData.current_organization_id,
+        p_phone: patPhone || '',
+        p_email: patEmail || ''
+      });
+      if (matchedId) {
+        finalPatientId = matchedId;
+        console.log(`[notify-appointment] Matched existing patient via RPC: ${finalPatientId}`);
+      }
+    }
+
+    if (finalPatientId) {
       const { data: patientData } = await supabase
         .from('patients')
         .select('name, email, phone')
-        .eq('id', patientId)
+        .eq('id', finalPatientId)
         .single()
       if (patientData) {
         patEmail = patientData.email || patEmail;
         patName = patientData.name || patName;
-        patPhone = patientData.phone || '';
+        patPhone = patientData.phone || patPhone;
       }
     }
 
@@ -501,7 +531,9 @@ serve(async (req) => {
         tzLabel: patientTzLabel,
         utcStart,
         utcEnd,
-        patientTz
+        patientTz,
+        managementToken,
+        isNewPatient: !finalPatientId
       })
       const patRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -547,7 +579,9 @@ serve(async (req) => {
           locationVar = location ? location : 'el consultorio';
         }
 
-        const tplId = (!patientId || sessionType === 'initial' || sessionType === 'primera_vez' || sessionType?.toLowerCase().includes('primera')) ? 'primera_cita' : 'confirmacion_cita';
+        const isFirstTime = (!finalPatientId || sessionType === 'initial' || sessionType === 'primera_vez' || sessionType?.toLowerCase().includes('primera'));
+        const tplId = isFirstTime ? 'primera_cita' : 'confirmacion_cita';
+        console.log(`[notify-appointment] Selected WhatsApp template: ${tplId} (finalPatientId: ${finalPatientId}, sessionType: ${sessionType})`);
 
         let variables: string[] = [];
         if (tplId === 'primera_cita') {
@@ -579,7 +613,7 @@ serve(async (req) => {
               action: 'send',
               phone: patPhone,
               organization_id: profileData.current_organization_id,
-              patient_id: patientId,
+              patient_id: finalPatientId || undefined,
               template_id: tplId,
               template_variables: variables
             })

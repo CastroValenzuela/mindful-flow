@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { format, isSameDay, addDays, startOfToday, parseISO, isBefore, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { getVisitorTimezone, getTimezoneFriendlyLabel, buildUTCFromClinicTime } from '@/lib/timezone';
-import { Loader2, ArrowLeft, Clock, Calendar as CalendarIcon, User, CheckCircle2, LayoutGrid, DollarSign, BookOpen, ShieldCheck, Video, MapPin, Globe } from 'lucide-react';
+import { Loader2, ArrowLeft, ArrowRight, Clock, Calendar as CalendarIcon, User, CheckCircle2, LayoutGrid, DollarSign, BookOpen, ShieldCheck, Video, MapPin, Globe } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -86,6 +86,9 @@ const BookingPage = () => {
   const [meetingPlatform, setMeetingPlatform] = useState('');
   const [location, setLocation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [honeypot, setHoneypot] = useState('');
+  const [bookingManagementToken, setBookingManagementToken] = useState<string | null>(null);
+  const [isNewPatientBooking, setIsNewPatientBooking] = useState(false);
 
   // 1. Fetch Specialist Profile
   useEffect(() => {
@@ -330,31 +333,62 @@ const BookingPage = () => {
       toast.error('Por favor, ingresa la ubicación o consultorio.');
       return;
     }
+    // ANTI-SPAM 1: Honeypot (hidden field for bots)
+    if (honeypot) {
+      toast.success('¡Tu cita ha sido agendada con éxito!'); // Fake success to fool the bot
+      return;
+    }
+
+    // ANTI-SPAM 2: Rate Limiting by Phone (Max 2 bookings per day)
+    const { count: recentLeads } = await supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('phone', patientInfo.phone)
+      .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+      
+    if (recentLeads && recentLeads >= 2) {
+      toast.error('Hemos detectado múltiples reservas recientes con este número. Por seguridad, contáctanos directamente por WhatsApp para agendar.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      // 1. Create a "lead" or "patient" record ideally, or just save on appointment
-      // For this MVP, we save directly to appointment, but we need patient_id.
-      // Since it's public, we might want to create a patient if it doesn't exist, or a lead.
-      // Let's create a lead first.
-      
-      const { error: leadError } = await supabase
-        .from('leads')
-        .insert({
-          name: patientInfo.name,
-          email: patientInfo.email,
-          phone: patientInfo.phone,
-          source: 'web',
-          status: 'nuevo_lead',
-          user_id: profile.id,
-          organization_id: profile.current_organization_id,
-          age: patientInfo.age ? parseInt(patientInfo.age) : null,
-          reason_for_consultation: patientInfo.reason || null,
-          service_id: selectedService?.id || null,
-          booking_answers: Object.keys(bookingAnswers).length > 0 ? bookingAnswers : null,
+      // 1. Detect if patient already exists in this organization using secure RPC (bypasses RLS)
+      let existingPatientId: string | null = null;
+
+      if (profile.current_organization_id) {
+        const { data: matchedId, error: matchErr } = await supabase.rpc('find_patient_by_contact', {
+          p_organization_id: profile.current_organization_id,
+          p_phone: patientInfo.phone,
+          p_email: patientInfo.email
         });
-        
-      if (leadError) throw leadError;
+
+        if (!matchErr && matchedId) {
+          existingPatientId = matchedId;
+          console.log('[BookingPage] Patient matched via RPC:', existingPatientId);
+        }
+      }
+
+      // If they are a new prospect, create a lead in CRM
+      if (!existingPatientId) {
+        const { error: leadError } = await supabase
+          .from('leads')
+          .insert({
+            name: patientInfo.name,
+            email: patientInfo.email,
+            phone: patientInfo.phone,
+            source: 'web',
+            status: 'nuevo_lead',
+            user_id: profile.id,
+            organization_id: profile.current_organization_id,
+            age: patientInfo.age ? parseInt(patientInfo.age) : null,
+            reason_for_consultation: patientInfo.reason || null,
+            service_id: selectedService?.id || null,
+            booking_answers: Object.keys(bookingAnswers).length > 0 ? bookingAnswers : null,
+          });
+          
+        if (leadError) throw leadError;
+      }
 
       // Create date objects using the selected time in the clinic's timezone
       const startTime = buildUTCFromClinicTime(selectedDate, selectedTime, clinicTimezone);
@@ -426,6 +460,7 @@ const BookingPage = () => {
       }
 
       // 2. Create the appointment
+      const managementToken = crypto.randomUUID();
       let finalCommission = 30;
       if (profile && profile.porcentaje_consultorio !== undefined && profile.porcentaje_consultorio !== null) {
         finalCommission = profile.porcentaje_consultorio;
@@ -446,12 +481,14 @@ const BookingPage = () => {
         .from('appointments')
         .insert({
           id: appointmentId,
+          management_token: managementToken,
           user_id: profile.id,
+          patient_id: existingPatientId,
           patient_name: patientInfo.name, 
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
           status: 'pending',
-          type: selectedService?.name || 'primera_vez', 
+          type: selectedService?.name || (existingPatientId ? 'individual' : 'primera_vez'), 
           fee: selectedService?.price || 0,
           payment_status: 'pending',
           meeting_platform: finalPlatform,
@@ -470,16 +507,18 @@ const BookingPage = () => {
 
       if (aptError) throw aptError;
 
-      // 3. Send Email Notifications
+      // 3. Send Email & WhatsApp Notifications
       supabase.functions.invoke('notify-appointment', {
         body: {
           psychologistId: profile.id,
+          patientId: existingPatientId || undefined,
+          managementToken: managementToken,
           patientName: patientInfo.name,
           patientEmail: patientInfo.email,
           patientPhone: patientInfo.phone,
           startTime: startTime.toISOString(),
           endTime: endTime.toISOString(),
-          sessionType: selectedService?.name || 'primera_vez',
+          sessionType: selectedService?.name || (existingPatientId ? 'individual' : 'primera_vez'),
           fee: selectedService?.price || 0,
           meetingLink: finalMeetLink,
           meetingPlatform: finalPlatform,
@@ -505,6 +544,8 @@ const BookingPage = () => {
         organization_id: profile.current_organization_id,
       });
 
+      setBookingManagementToken(managementToken);
+      setIsNewPatientBooking(!existingPatientId);
       setStep(3);
     } catch (err: unknown) {
       const error = err as Error;
@@ -740,6 +781,21 @@ const BookingPage = () => {
                 </div>
 
                 <form onSubmit={handleBooking} className="space-y-4">
+                  
+                  {/* Honeypot field (hidden from users, visible to bots) */}
+                  <div className="hidden" aria-hidden="true">
+                    <Label htmlFor="website_url">Website URL</Label>
+                    <Input 
+                      id="website_url"
+                      name="website_url"
+                      type="text"
+                      tabIndex={-1}
+                      autoComplete="off"
+                      value={honeypot}
+                      onChange={(e) => setHoneypot(e.target.value)}
+                    />
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="name">Nombre completo *</Label>
                     <Input 
@@ -1023,6 +1079,31 @@ const BookingPage = () => {
                     }
                   </p>
                 </div>
+
+                {isNewPatientBooking && bookingManagementToken && (
+                  <div className="w-full max-w-sm mt-6 p-5 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 text-left animate-fade-in shadow-xs">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-base">📋</span>
+                      <h3 className="text-sm font-bold text-foreground">Ficha de Ingreso Clínico</h3>
+                      <span className="text-[10px] bg-primary text-primary-foreground font-bold px-2 py-0.5 rounded-full ml-auto">
+                        2 min
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                      Prepara tu primera sesión completando tus datos generales, contacto de emergencia y consentimiento informado.
+                    </p>
+                    <Button
+                      className="w-full rounded-xl font-bold text-xs h-10 gap-1.5 shadow-sm"
+                      onClick={() => navigate(`/ingreso/${bookingManagementToken}`)}
+                    >
+                      <span>Completar Ficha de Ingreso</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Button>
+                    <p className="text-[10px] text-muted-foreground text-center mt-2.5">
+                      También te enviamos este enlace por correo electrónico.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

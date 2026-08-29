@@ -95,7 +95,7 @@ export default function ProfileSettings() {
     bio: '',
     experience_years: 0,
     social_links: { instagram: '', linkedin: '', facebook: '' } as Record<string, string>,
-    reschedule_policy_hours: 24,
+    reschedule_policy_hours: 12,
   });
 
   const [originalSlug, setOriginalSlug] = useState('');
@@ -137,7 +137,7 @@ export default function ProfileSettings() {
         bio: profileData.bio || '',
         experience_years: profileData.experience_years || 0,
         social_links: profileData.social_links || { instagram: '', linkedin: '', facebook: '' },
-        reschedule_policy_hours: profileData.reschedule_policy_hours ?? 24,
+        reschedule_policy_hours: profileData.reschedule_policy_hours ?? 12,
       });
       setOriginalSlug(profileData.slug || '');
 

@@ -22,8 +22,16 @@ import {
   FileSignature,
   Download,
   Video,
-  CheckSquare
+  CheckSquare,
+  HeartHandshake,
+  Sparkles,
+  Shield,
+  Save,
+  Phone,
+  Mail
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { psychometricTests } from '@/lib/psychometricTests';
 import jsPDF from 'jspdf';
@@ -70,6 +78,21 @@ interface PatientSession {
   expiresAt: string;
 }
 
+interface PatientProfileData {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  birth_date: string | null;
+  gender: string | null;
+  occupation: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_relationship: string | null;
+  reason_for_consultation: string | null;
+  created_at: string;
+}
+
 interface ConsentRecord {
   id: string;
   form_type: 'general' | 'tratamiento' | 'datos_personales';
@@ -97,12 +120,25 @@ export default function Portal() {
   const [assignedTests, setAssignedTests] = useState<PatientTest[]>([]);
   const [consents, setConsents] = useState<ConsentRecord[]>([]);
   const [patientTasks, setPatientTasks] = useState<PatientTaskItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'appointments' | 'tests' | 'consents' | 'tasks'>('appointments');
+  const [patientProfile, setPatientProfile] = useState<PatientProfileData | null>(null);
+  const [activeTab, setActiveTab] = useState<'appointments' | 'tasks' | 'tests' | 'consents' | 'profile'>('appointments');
   const [loading, setLoading] = useState(true);
   const [loadingTests, setLoadingTests] = useState(false);
   const [loadingConsents, setLoadingConsents] = useState(false);
   const [loadingTasks, setLoadingTasks] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+
+  const [profileForm, setProfileForm] = useState({
+    birth_date: '',
+    gender: '',
+    occupation: '',
+    emergency_contact_name: '',
+    emergency_contact_phone: '',
+    emergency_contact_relationship: '',
+    reason_for_consultation: ''
+  });
 
   const toggleTaskCompletion = (taskId: string) => {
     setPatientTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t));
@@ -142,7 +178,63 @@ export default function Portal() {
     fetchPatientTests(parsedSession.accessToken);
     fetchPatientConsents(parsedSession.accessToken);
     fetchPatientTasks(parsedSession.accessToken);
+    fetchPatientProfile(parsedSession.accessToken);
   }, [navigate]);
+
+  const fetchPatientProfile = async (accessToken: string) => {
+    setLoadingProfile(true);
+    try {
+      const { data, error } = await supabase.rpc('get_patient_profile', {
+        p_access_token: accessToken
+      });
+      if (error) throw error;
+      if (data?.success && data.patient) {
+        setPatientProfile(data.patient);
+        setProfileForm({
+          birth_date: data.patient.birth_date || '',
+          gender: data.patient.gender || '',
+          occupation: data.patient.occupation || '',
+          emergency_contact_name: data.patient.emergency_contact_name || '',
+          emergency_contact_phone: data.patient.emergency_contact_phone || '',
+          emergency_contact_relationship: data.patient.emergency_contact_relationship || '',
+          reason_for_consultation: data.patient.reason_for_consultation || ''
+        });
+      }
+    } catch (err: unknown) {
+      console.warn('Error fetching patient profile:', err);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session) return;
+    setIsSavingProfile(true);
+    try {
+      const { data, error } = await supabase.rpc('update_patient_profile', {
+        p_access_token: session.accessToken,
+        p_birth_date: profileForm.birth_date || null,
+        p_gender: profileForm.gender || null,
+        p_occupation: profileForm.occupation || null,
+        p_emergency_contact_name: profileForm.emergency_contact_name || null,
+        p_emergency_contact_phone: profileForm.emergency_contact_phone || null,
+        p_emergency_contact_relationship: profileForm.emergency_contact_relationship || null,
+        p_reason_for_consultation: profileForm.reason_for_consultation || null
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'No se pudo actualizar el perfil');
+
+      toast.success('Perfil actualizado correctamente');
+      await fetchPatientProfile(session.accessToken);
+    } catch (err: any) {
+      console.error('Error updating patient profile:', err);
+      toast.error(err.message || 'Error al actualizar perfil');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const fetchPatientTasks = async (accessToken: string) => {
     setLoadingTasks(true);
@@ -441,7 +533,9 @@ export default function Portal() {
                 ? 'Mis Pruebas Clínicas' 
                 : activeTab === 'tasks'
                 ? 'Mis Tareas'
-                : 'Mis Documentos'}
+                : activeTab === 'consents'
+                ? 'Mis Documentos'
+                : 'Mi Perfil Clínico'}
             </h1>
             <p className="text-sm text-muted-foreground">
               {activeTab === 'appointments' 
@@ -450,7 +544,9 @@ export default function Portal() {
                 ? 'Resuelve tus evaluaciones psicométricas asignadas y revisa tus resultados históricos.'
                 : activeTab === 'tasks'
                 ? 'Consulta tus tareas y ejercicios recomendados por tu especialista entre sesiones.'
-                : 'Lee y firma de forma electrónica los documentos y consentimientos informados asignados.'}
+                : activeTab === 'consents'
+                ? 'Lee y firma de forma electrónica los documentos y consentimientos informados asignados.'
+                : 'Consulta y actualiza tus datos demográficos, de contacto y contacto de emergencia.'}
             </p>
           </div>
 
@@ -520,6 +616,18 @@ export default function Portal() {
                 </span>
               )}
             </button>
+
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all relative ${
+                activeTab === 'profile'
+                  ? 'bg-white text-primary shadow-sm border border-border/20'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
+              }`}
+            >
+              <User className="h-4 w-4" />
+              <span>Mi Perfil</span>
+            </button>
           </div>
         </div>
 
@@ -542,7 +650,7 @@ export default function Portal() {
                 
                 const policyHours = apt.reschedule_policy_hours !== undefined && apt.reschedule_policy_hours !== null 
                   ? apt.reschedule_policy_hours 
-                  : 24;
+                  : 12;
                 
                 const isExpired = (dateObj.getTime() - new Date().getTime()) < policyHours * 60 * 60 * 1000;
                 
@@ -964,6 +1072,197 @@ export default function Portal() {
                   </div>
                 </div>
               )}
+            </div>
+          )
+        )}
+
+        {/* Profile Tab Content */}
+        {activeTab === 'profile' && (
+          loadingProfile ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="space-y-6 animate-fade-in">
+              <form onSubmit={handleSaveProfile} className="space-y-6">
+                {/* Personal Information */}
+                <Card className="rounded-2xl border-border/60 shadow-sm bg-white overflow-hidden">
+                  <CardHeader className="p-6 pb-2">
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                      <User className="w-5 h-5 text-primary" />
+                      <span>Datos Personales</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Información registrada en tu expediente clínico conforme a la NOM-024.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Nombre Completo</Label>
+                        <Input
+                          value={patientProfile?.name || session.name}
+                          disabled
+                          className="bg-muted/30 rounded-xl"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Correo Electrónico</Label>
+                        <Input
+                          value={patientProfile?.email || session.email}
+                          disabled
+                          className="bg-muted/30 rounded-xl"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Teléfono Celular</Label>
+                        <Input
+                          value={patientProfile?.phone || session.phone}
+                          disabled
+                          className="bg-muted/30 rounded-xl"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="prof-dob" className="text-xs font-semibold">Fecha de Nacimiento</Label>
+                        <Input
+                          id="prof-dob"
+                          type="date"
+                          value={profileForm.birth_date}
+                          onChange={(e) => setProfileForm(prev => ({ ...prev, birth_date: e.target.value }))}
+                          className="rounded-xl"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="prof-gender" className="text-xs font-semibold">Género</Label>
+                        <select
+                          id="prof-gender"
+                          value={profileForm.gender}
+                          onChange={(e) => setProfileForm(prev => ({ ...prev, gender: e.target.value }))}
+                          className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          <option value="">Seleccionar</option>
+                          <option value="femenino">Femenino</option>
+                          <option value="masculino">Masculino</option>
+                          <option value="no_binario">No binario</option>
+                          <option value="otro">Otro</option>
+                          <option value="prefiero_no_decir">Prefiero no especificar</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="prof-occ" className="text-xs font-semibold">Ocupación</Label>
+                        <Input
+                          id="prof-occ"
+                          value={profileForm.occupation}
+                          onChange={(e) => setProfileForm(prev => ({ ...prev, occupation: e.target.value }))}
+                          placeholder="Ej. Ingeniero, Diseñador..."
+                          className="rounded-xl"
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Emergency Contact */}
+                <Card className="rounded-2xl border-border/60 shadow-sm bg-white overflow-hidden">
+                  <CardHeader className="p-6 pb-2">
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                      <HeartHandshake className="w-5 h-5 text-rose-500" />
+                      <span>Contacto de Emergencia</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Persona de confianza a quien contactar exclusivamente en caso de urgencia o crisis.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="prof-emg-name" className="text-xs font-semibold">Nombre del Contacto</Label>
+                        <Input
+                          id="prof-emg-name"
+                          value={profileForm.emergency_contact_name}
+                          onChange={(e) => setProfileForm(prev => ({ ...prev, emergency_contact_name: e.target.value }))}
+                          placeholder="Nombre completo"
+                          className="rounded-xl"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="prof-emg-phone" className="text-xs font-semibold">Teléfono</Label>
+                        <Input
+                          id="prof-emg-phone"
+                          type="tel"
+                          value={profileForm.emergency_contact_phone}
+                          onChange={(e) => setProfileForm(prev => ({ ...prev, emergency_contact_phone: e.target.value }))}
+                          placeholder="10 dígitos"
+                          className="rounded-xl"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="prof-emg-rel" className="text-xs font-semibold">Parentesco / Relación</Label>
+                        <select
+                          id="prof-emg-rel"
+                          value={profileForm.emergency_contact_relationship}
+                          onChange={(e) => setProfileForm(prev => ({ ...prev, emergency_contact_relationship: e.target.value }))}
+                          className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          <option value="">Seleccionar parentesco</option>
+                          <option value="pareja">Pareja / Cónyuge</option>
+                          <option value="madre">Madre</option>
+                          <option value="padre">Padre</option>
+                          <option value="hermano_a">Hermano / Hermana</option>
+                          <option value="hijo_a">Hijo / Hija</option>
+                          <option value="familiar">Otro familiar</option>
+                          <option value="amigo_a">Amigo / Amiga</option>
+                          <option value="otro">Otro</option>
+                        </select>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Reason for Consultation */}
+                <Card className="rounded-2xl border-border/60 shadow-sm bg-white overflow-hidden">
+                  <CardHeader className="p-6 pb-2">
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-primary" />
+                      <span>Motivo de Consulta</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Notas sobre tus motivos u objetivos para tu proceso terapéutico.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <textarea
+                      rows={3}
+                      value={profileForm.reason_for_consultation}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, reason_for_consultation: e.target.value }))}
+                      placeholder="Motivo principal o temas a trabajar..."
+                      className="w-full rounded-xl border border-input bg-background p-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    />
+                  </CardContent>
+                  <CardFooter className="p-6 bg-muted/10 border-t border-border/40 flex justify-end">
+                    <Button
+                      type="submit"
+                      disabled={isSavingProfile}
+                      className="rounded-xl font-bold gap-2 px-6 shadow-sm"
+                    >
+                      {isSavingProfile ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          <span>Guardando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          <span>Guardar Cambios</span>
+                        </>
+                      )}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              </form>
             </div>
           )
         )}

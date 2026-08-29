@@ -27,3 +27,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Scratch & temporary test scripts
+*.sql
+*.zip
+test-*.js
+test-*.ts
+test_*.cjs
+check-*.js
+clean_schema.*
+fix*.js
+fix_sql.cjs
+guess-vars.js
+payload.json
+deploy.cjs
+deploy_args.json
+postgres/
+postgres17/

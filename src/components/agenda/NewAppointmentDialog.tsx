@@ -141,7 +141,7 @@ const NewAppointmentDialog = ({
 
     const [specialistName, setSpecialistName] = useState('');
     const [porcentajeGlobal, setPorcentajeGlobal] = useState<number>(30);
-    const [reschedulePolicyGlobal, setReschedulePolicyGlobal] = useState<number>(24);
+    const [reschedulePolicyGlobal, setReschedulePolicyGlobal] = useState<number>(12);
 
     // Schedule config loaded from profile
     const [horarioConfig, setHorarioConfig] = useState<any>({
@@ -975,6 +975,8 @@ const NewAppointmentDialog = ({
         }
     };
 
+    const [isRequestingPayment, setIsRequestingPayment] = useState(false);
+
     const handleCancelAppointment = async () => {
         if (!editingAppointment) return;
         setIsCancelling(true);
@@ -992,6 +994,62 @@ const NewAppointmentDialog = ({
         } finally {
             setIsCancelling(false);
             setConfirmCancel(false);
+        }
+    };
+
+    const handleRequestPayment = async () => {
+        if (!editingAppointment) return;
+        setIsRequestingPayment(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error('No hay sesión activa');
+
+            // 1. Crear sesión de Stripe
+            const { data: resData, error: resError } = await supabase.functions.invoke('create-checkout-session', {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+                body: { 
+                    appointment_id: editingAppointment.id,
+                    amount_mxn: formData.fee || editingAppointment.fee || 0,
+                    patient_name: formData.patientName || 'Paciente',
+                    description: `Pago de sesión - ${format(new Date(editingAppointment.start_time), "d 'de' MMMM", { locale: es })}`
+                }
+            });
+
+            if (resError) throw new Error(resError.message || 'Error al crear cobro en Stripe');
+            
+            const stripeUrl = resData.url;
+            const urlParts = stripeUrl.split('/pay/');
+            const paymentId = urlParts.length > 1 ? urlParts[1] : null;
+
+            if (!paymentId) throw new Error('URL de Stripe inválida');
+
+            // 2. Mandar WhatsApp
+            const { error: wpError } = await supabase.functions.invoke('meta-whatsapp', {
+                body: {
+                    action: 'send',
+                    organization_id: organization?.id,
+                    patient_id: editingAppointment.patient_id,
+                    phone: formData.patientPhone,
+                    template_id: 'pago_pendiente',
+                    template_variables: [
+                        formData.patientName || 'Paciente',
+                        format(new Date(editingAppointment.start_time), "d 'de' MMMM 'del' yyyy", { locale: es }),
+                        format(new Date(editingAppointment.start_time), "h:mm a"),
+                        specialistName || 'tu terapeuta',
+                        `$ ${formData.fee || editingAppointment.fee || 0}`
+                    ],
+                    template_button_variables: [paymentId]
+                }
+            });
+
+            if (wpError) throw new Error('Cobro creado pero falló WhatsApp');
+
+            toast.success('¡Enlace de cobro enviado por WhatsApp!');
+        } catch (error: any) {
+            toast.error(error.message || 'Error desconocido');
+            console.error('Error al solicitar pago:', error);
+        } finally {
+            setIsRequestingPayment(false);
         }
     };
 
@@ -1586,6 +1644,19 @@ const NewAppointmentDialog = ({
                                         Cancelar cita
                                     </Button>
                                 )
+                            )}
+                            
+                            {/* Solicitar Pago por WhatsApp */}
+                            {isEditing && !isReadOnly && editingAppointment?.payment_status !== 'paid' && editingAppointment?.status !== 'cancelled' && (
+                                <Button
+                                    type="button"
+                                    onClick={handleRequestPayment}
+                                    disabled={isRequestingPayment}
+                                    className="mr-auto sm:ml-2 gap-2 bg-green-600 text-white hover:bg-green-700"
+                                >
+                                    {isRequestingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="text-lg">💰</span>}
+                                    Solicitar Pago
+                                </Button>
                             )}
                             
                             {/* Entrar al Consultorio Virtual */}

@@ -54,6 +54,7 @@ const JoinSession = lazyWithRetry(() => import("./pages/JoinSession"));
 const Messages = lazyWithRetry(() => import("./pages/Messages"));
 const BookingPage = lazyWithRetry(() => import("./pages/BookingPage"));
 const PublicProfile = lazyWithRetry(() => import("./pages/PublicProfile"));
+const PatientIntake = lazyWithRetry(() => import("./pages/PatientIntake"));
 const PortalLogin = lazyWithRetry(() => import("./pages/PortalLogin"));
 const Portal = lazyWithRetry(() => import("./pages/Portal"));
 const PrivacyPolicy = lazyWithRetry(() => import("./pages/PrivacyPolicy"));
@@ -261,6 +262,8 @@ const AppContent = () => {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/reservar/:slug" element={<BookingPage />} />
             <Route path="/perfil/:slug" element={<PublicProfile />} />
+            <Route path="/ingreso/:token" element={<PatientIntake />} />
+            <Route path="/intake/:token" element={<PatientIntake />} />
             <Route
               path="/"
               element={

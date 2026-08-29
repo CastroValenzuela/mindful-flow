@@ -79,10 +79,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import NewPatientDialog from '@/components/patients/NewPatientDialog';
+import ImportPatientsDialog from '@/components/patients/ImportPatientsDialog';
 import AssignTestDialog from '@/components/patients/AssignTestDialog';
 import { PatientHeader } from '@/components/patients/PatientHeader';
 import { PatientClinicalHistory } from '@/components/patients/PatientClinicalHistory';
 import { useOrganization } from '@/hooks/useOrganization';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getMSECategoryLabel } from '@/lib/mentalStatusConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePatientDetails } from '@/hooks/usePatientDetails';
@@ -337,6 +345,7 @@ const SwipeablePatientCard = ({ patient, onSelect, swipedPatientId, setSwipedPat
 
 const Patients = () => {
   const { organization } = useOrganization();
+  const { user, profile } = useAuth();
   const { canUse, navigateToUpgrade } = useSubscription();
   const navigate = useNavigate();
 
@@ -364,6 +373,7 @@ const Patients = () => {
   const [isLeadsLoading, setIsLeadsLoading] = useState(false);
   
   const [isNewPatientOpen, setIsNewPatientOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [confirmDeletePatient, setConfirmDeletePatient] = useState(false);
   const [isDeletingPatient, setIsDeletingPatient] = useState(false);
@@ -391,7 +401,6 @@ const Patients = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const importFileInputRef = useRef<HTMLInputElement>(null);
 
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -899,77 +908,6 @@ const Patients = () => {
     }
   };
 
-  const handleImportCSV = async (file: File) => {
-    if (!organization?.id) return;
-    
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target?.result as string;
-      const lines = text.split('\n');
-      if (lines.length < 2) {
-        toast.error('El archivo CSV está vacío o no tiene el formato correcto');
-        return;
-      }
-
-      // Parse headers
-      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-      const newPatients = [];
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-
-        // Basic CSV parser that handles quoted values with commas
-        const values: string[] = [];
-        let current = '';
-        let inQuotes = false;
-        for (let char of line) {
-          if (char === '"') inQuotes = !inQuotes;
-          else if (char === ',' && !inQuotes) {
-            values.push(current.trim());
-            current = '';
-          } else {
-            current += char;
-          }
-        }
-        values.push(current.trim());
-
-        const patient: any = {
-          organization_id: organization.id,
-          status: 'activo'
-        };
-
-        headers.forEach((header, index) => {
-          // Avoid overwriting IDs or organization IDs to prevent conflicts
-          if (header !== 'id' && header !== 'organization_id' && header.length > 0) {
-            patient[header] = values[index] || null;
-          }
-        });
-
-        if (patient.name && patient.name !== 'name') {
-          newPatients.push(patient);
-        }
-      }
-
-      if (newPatients.length === 0) {
-        toast.error('No se encontraron pacientes válidos para importar');
-        return;
-      }
-
-      try {
-        const { error } = await supabase.from('patients').insert(newPatients);
-        if (error) throw error;
-        toast.success(`${newPatients.length} pacientes importados correctamente`);
-        fetchPatients();
-        setSearchRefreshTrigger(prev => prev + 1);
-      } catch (err: any) {
-        console.error('Error importing:', err);
-        toast.error('Error al importar: ' + (err.message || 'Error desconocido'));
-      }
-    };
-    reader.readAsText(file);
-  };
-
   return (
     <>
       <Layout 
@@ -1019,24 +957,13 @@ const Patients = () => {
             </div>
 
             <div className="flex flex-wrap gap-2 sm:gap-3 w-full lg:w-auto justify-end">
-              <input
-                type="file"
-                ref={importFileInputRef}
-                className="hidden"
-                accept=".csv"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleImportCSV(file);
-                  e.target.value = '';
-                }}
-              />
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="h-10 text-[10px] font-bold uppercase tracking-widest px-4 border-primary/20 hover:bg-primary/5 transition-all"
-                onClick={() => importFileInputRef.current?.click()}
+                className="h-10 text-[10px] font-bold uppercase tracking-widest px-4 border-primary/20 hover:bg-primary/5 transition-all text-primary"
+                onClick={() => setIsImportModalOpen(true)}
               >
-                <Upload className="h-3.5 w-3.5 mr-2" />
+                <Upload className="h-3.5 w-3.5 mr-2 text-primary" />
                 Importar
               </Button>
               <Button 
@@ -2493,6 +2420,18 @@ const Patients = () => {
           setEditingPatient(null);
         }}
         editingPatient={editingPatient}
+      />
+
+      {/* Import Patients Dialog (Excel / CSV) */}
+      <ImportPatientsDialog
+        open={isImportModalOpen}
+        onOpenChange={setIsImportModalOpen}
+        organizationId={organization?.id || ''}
+        userId={user?.id || profile?.id}
+        onImportCompleted={() => {
+          fetchPatients();
+          setSearchRefreshTrigger(prev => prev + 1);
+        }}
       />
 
       {selectedPatientData && (
