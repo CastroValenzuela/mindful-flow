@@ -1080,27 +1080,33 @@ const BookingPage = () => {
                   </p>
                 </div>
 
-                {isNewPatientBooking && bookingManagementToken && (
+                {bookingManagementToken && (
                   <div className="w-full max-w-sm mt-6 p-5 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 text-left animate-fade-in shadow-xs">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-base">📋</span>
-                      <h3 className="text-sm font-bold text-foreground">Ficha de Ingreso Clínico</h3>
+                      <h3 className="text-sm font-bold text-foreground">
+                        {isNewPatientBooking ? 'Ficha de Ingreso Clínico' : 'Portal del Paciente'}
+                      </h3>
                       <span className="text-[10px] bg-primary text-primary-foreground font-bold px-2 py-0.5 rounded-full ml-auto">
-                        2 min
+                        {isNewPatientBooking ? '2 min' : 'Acceso'}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-                      Prepara tu primera sesión completando tus datos generales, contacto de emergencia y consentimiento informado.
+                      {isNewPatientBooking
+                        ? 'Prepara tu primera sesión completando tus datos generales, contacto de emergencia y consentimiento informado.'
+                        : 'Revisa tus citas, documentos y mantén actualizado tu expediente desde tu portal.'}
                     </p>
                     <Button
-                      className="w-full rounded-xl font-bold text-xs h-10 gap-1.5 shadow-sm"
-                      onClick={() => navigate(`/ingreso/${bookingManagementToken}`)}
+                      className="w-full rounded-xl font-bold text-xs h-10 gap-1.5 shadow-sm bg-primary hover:bg-primary/95 text-white"
+                      onClick={() => navigate(isNewPatientBooking ? `/ingreso/${bookingManagementToken}` : `/portal`)}
                     >
-                      <span>Completar Ficha de Ingreso</span>
+                      <span>{isNewPatientBooking ? 'Completar Ficha de Ingreso' : 'Ir a Mi Portal de Paciente'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </Button>
                     <p className="text-[10px] text-muted-foreground text-center mt-2.5">
-                      También te enviamos este enlace por correo electrónico.
+                      {isNewPatientBooking 
+                        ? 'También te enviamos este enlace por correo electrónico.'
+                        : 'Accede a tu portal seguro en cualquier momento.'}
                     </p>
                   </div>
                 )}
