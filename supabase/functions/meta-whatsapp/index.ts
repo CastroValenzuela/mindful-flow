@@ -68,6 +68,73 @@ function getTimezoneFriendlyLabel(tz: string) {
   }
 }
 
+// Helper para detectar confirmación de cita en lenguaje natural y botones WhatsApp
+function isConfirmationMessage(text: string): boolean {
+  if (!text) return false;
+  const cleaned = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remover acentos (sí -> si, asistiré -> asistire)
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡!]/g, " ") // remover puntuación
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const exacts = ["si", "yes", "confirmar", "confirmo", "1", "ok", "listo", "de acuerdo", "perfecto", "asistire", "voy"];
+  if (exacts.includes(cleaned)) return true;
+
+  if (
+    cleaned.includes("si asistire") ||
+    cleaned.includes("asistire") ||
+    cleaned.includes("si voy") ||
+    cleaned.includes("ahi estare") ||
+    cleaned.includes("confirmo") ||
+    cleaned.includes("confirmar cita") ||
+    cleaned.includes("confirmo mi cita") ||
+    cleaned.includes("confirmo asistencia") ||
+    cleaned.includes("confirmar asistencia") ||
+    cleaned.includes("si confirmo") ||
+    cleaned.includes("claro que si") ||
+    cleaned.includes("por supuesto") ||
+    cleaned.includes("si por favor") ||
+    cleaned.includes("cuenten conmigo") ||
+    cleaned.startsWith("si ") ||
+    cleaned.endsWith(" si")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+// Helper para detectar cancelación o imposibilidad de asistir
+function isCancellationMessage(text: string): boolean {
+  if (!text) return false;
+  const cleaned = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const exacts = ["no", "cancelar", "cancelo", "2", "reagendar"];
+  if (exacts.includes(cleaned)) return true;
+
+  if (
+    cleaned.includes("no podre") ||
+    cleaned.includes("no voy a poder") ||
+    cleaned.includes("no asistire") ||
+    cleaned.includes("cancelar cita") ||
+    cleaned.includes("cancelo mi cita") ||
+    cleaned.includes("no puedo") ||
+    cleaned.includes("no voy a asistir") ||
+    cleaned.includes("deseo cancelar") ||
+    cleaned.includes("no voy a ir")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -151,9 +218,23 @@ serve(async (req) => {
           const messageData = value.messages[0];
           const from = messageData.from; // Número de quien envía
           const msgId = messageData.id;
-          const body = messageData.text?.body || "";
 
-          console.log(`📥 Incoming WhatsApp (Meta) from ${from}: "${body}"`);
+          // Extracción completa de texto: mensajes normales, botones de plantilla o botones interactivos
+          let body = messageData.text?.body || "";
+          if (!body && messageData.button?.text) {
+            body = messageData.button.text;
+          } else if (!body && messageData.button?.payload) {
+            body = messageData.button.payload;
+          } else if (!body && messageData.interactive?.button_reply?.title) {
+            body = messageData.interactive.button_reply.title;
+          } else if (!body && messageData.interactive?.button_reply?.id) {
+            body = messageData.interactive.button_reply.id;
+          } else if (!body && messageData.interactive?.list_reply?.title) {
+            body = messageData.interactive.list_reply.title;
+          }
+          body = (body || "").trim();
+
+          console.log(`📥 Incoming WhatsApp (Meta) from ${from}: "${body}" (type: ${messageData.type})`);
 
           const rawPhone = normalizeMexicanPhone(from); // Normalize immediately to unify threads
           const cleanPhone = getCleanPhone(rawPhone);
@@ -251,105 +332,115 @@ serve(async (req) => {
           } else if (!patientId) {
             responseText = "Hola, este número no está registrado en Saudade. Si eres paciente, por favor solicita a tu especialista tu enlace de invitación o código de vinculación.";
             isGeneralFallback = false;
-          } else if (patientId && (body === "Sí, asistiré" || body === "No podré asistir")) {
-            // Find next upcoming appointment
-            const { data: upcomingApt } = await supabaseClient
-              .from("appointments")
-              .select("id, start_time, organization_id, user_id")
-              .eq("patient_id", patientId)
-              .in("status", ["scheduled", "pending"]) // Only unconfirmed ones
-              .gte("start_time", new Date().toISOString())
-              .order("start_time", { ascending: true })
-              .limit(1)
-              .maybeSingle();
-
-            if (upcomingApt) {
-                if (body === "Sí, asistiré") {
-                    await supabaseClient.from("appointments").update({ status: "confirmed" }).eq("id", upcomingApt.id);
-                    responseText = "¡Excelente! Tu cita ha sido confirmada exitosamente. Te esperamos.";
-                } else {
-                    const aptTime = new Date(upcomingApt.start_time).getTime();
-                    const now = Date.now();
-                    const hoursDifference = (aptTime - now) / (1000 * 60 * 60);
-                    
-                    if (hoursDifference >= 12) {
-                        await supabaseClient.from("appointments").update({ status: "cancelled" }).eq("id", upcomingApt.id);
-                        
-                        // Notify psychologist in system
-                        await supabaseClient.from("activity_logs").insert({
-                            profile_id: upcomingApt.user_id,
-                            organization_id: upcomingApt.organization_id,
-                            type: 'cancelation',
-                            title: 'Cita Cancelada por WhatsApp',
-                            description: `Un paciente acaba de cancelar su cita (cumpliendo la política de 12 horas). El espacio ha sido liberado en tu agenda.`
-                        });
-
-                        // Get psychologist slug
-                        const { data: orgData } = await supabaseClient
-                            .from("organizations")
-                            .select("slug")
-                            .eq("id", upcomingApt.organization_id)
-                            .maybeSingle();
-                            
-                        const bookingLink = orgData?.slug ? `https://app.saudade.mx/reservar/${orgData.slug}` : `https://app.saudade.mx`;
-                        responseText = `Entendido. Tu cita ha sido cancelada con éxito y sin penalización. Para elegir un nuevo horario cuando estés listo, entra a nuestro calendario aquí: ${bookingLink}`;
-                    } else {
-                        // Less than 12 hours
-                        
-                        // Notify psychologist in system
-                        await supabaseClient.from("activity_logs").insert({
-                            profile_id: upcomingApt.user_id,
-                            organization_id: upcomingApt.organization_id,
-                            type: 'cancelation',
-                            title: 'Intento de Cancelación Tardía',
-                            description: `Un paciente intentó cancelar su cita con menos de 12h de anticipación. Requiere atención.`
-                        });
-
-                        responseText = "Hemos recibido tu solicitud. Recuerda que nuestra política requiere 12 horas de anticipación para cancelar. Como tu cita es pronto, un coordinador de Saudade te contactará en breve para revisar tu caso.";
-                    }
-                }
-                isGeneralFallback = false;
-            } else {
-                responseText = "No encontramos ninguna cita próxima pendiente de confirmar, pero hemos registrado tu respuesta.";
-                isGeneralFallback = false;
-            }
-          } else if (patientId && organizationId && !isJustLinked) {
+          } else if (patientId) {
             const rawPatientName = currentPatient?.name || '';
             const cleanPatientFirstName = rawPatientName 
               ? rawPatientName.split(' ')[0].charAt(0).toUpperCase() + rawPatientName.split(' ')[0].slice(1).toLowerCase() 
               : 'Paciente';
 
-            // Check for appointments
-            const { data: appointment } = await supabaseClient
-              .from("appointments")
-              .select("id, status, start_time, type, reschedule_policy_hours")
-              .eq("patient_id", patientId)
-              .in("status", ["scheduled", "pending"])
-              .gt("start_time", new Date().toISOString())
-              .order("start_time", { ascending: true })
-              .limit(1)
-              .maybeSingle();
+            const isConfirm = isConfirmationMessage(body);
+            const isCancel = isCancellationMessage(body);
 
-            if (appointment) {
-              const bodyLower = body.toLowerCase();
-              const isConfirm = ["sí", "si", "yes", "confirmar", "1"].includes(bodyLower);
-              const isCancel = ["no", "cancelar", "reagendar", "2"].includes(bodyLower);
+            if (isConfirm || isCancel) {
+              // Buscar cita próxima (desde 3 horas atrás hacia adelante para cubrir confirmaciones de última hora)
+              const searchFrom = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+              const { data: upcomingApt } = await supabaseClient
+                .from("appointments")
+                .select("id, start_time, organization_id, user_id, type, modality, location, reschedule_policy_hours, notes")
+                .eq("patient_id", patientId)
+                .in("status", ["scheduled", "pending"])
+                .gte("start_time", searchFrom)
+                .order("start_time", { ascending: true })
+                .limit(1)
+                .maybeSingle();
 
-              if (isConfirm) {
-                await supabaseClient.from("appointments").update({ status: "confirmed" }).eq("id", appointment.id);
-                responseText = `¡Muchas gracias, ${cleanPatientFirstName}! ✨ Tu cita ha sido confirmada con éxito. Estamos listos para recibirte. 😊`;
-                isGeneralFallback = false;
-              } else if (isCancel) {
-                const policyHours = appointment.reschedule_policy_hours ?? 24;
-                const hoursDiff = (new Date(appointment.start_time).getTime() - new Date().getTime()) / (1000 * 60 * 60);
+              if (upcomingApt) {
+                const aptDate = new Date(upcomingApt.start_time);
+                const dateStr = aptDate.toLocaleDateString("es-MX", { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Mexico_City' });
+                const timeStr = aptDate.toLocaleTimeString("es-MX", { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
 
-                if (hoursDiff < policyHours) {
-                  responseText = `Hola ${cleanPatientFirstName}, la política de cambios requiere al menos ${policyHours} horas de anticipación. Puedes consultar tus opciones en tu Portal: ${portalUrl} o responder a este mensaje.`;
+                if (isConfirm) {
+                  // Confirmar Cita en 1 Clic
+                  await supabaseClient.from("appointments").update({ 
+                    status: "confirmed",
+                    notes: `${upcomingApt.notes || ''}\n[Confirmada por el paciente vía WhatsApp el ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}]`
+                  }).eq("id", upcomingApt.id);
+
+                  // Registrar log de actividad para el psicólogo
+                  await supabaseClient.from("activity_logs").insert({
+                    profile_id: upcomingApt.user_id,
+                    organization_id: upcomingApt.organization_id,
+                    type: 'appointment_confirmed',
+                    title: 'Cita Confirmada por WhatsApp',
+                    description: `${cleanPatientFirstName} ha confirmado su asistencia para la cita del ${dateStr} a las ${timeStr}.`
+                  });
+
+                  responseText = `¡Excelente, ${cleanPatientFirstName}! ✨ Tu cita para el ${dateStr} a las ${timeStr} ha quedado confirmada exitosamente. Estamos listos para recibirte. 😊`;
+                  isGeneralFallback = false;
                 } else {
-                  await supabaseClient.from("appointments").update({ status: "cancelled" }).eq("id", appointment.id);
-                  responseText = `Tu cita ha sido cancelada. Si deseas reagendar, puedes ingresar aquí: ${portalUrl} o escribirnos por este medio.`;
+                  // Cancelación
+                  const aptTime = aptDate.getTime();
+                  const now = Date.now();
+                  const hoursDifference = (aptTime - now) / (1000 * 60 * 60);
+                  const policyHours = upcomingApt.reschedule_policy_hours ?? 12;
+
+                  if (hoursDifference >= policyHours) {
+                    await supabaseClient.from("appointments").update({ 
+                      status: "cancelled",
+                      notes: `${upcomingApt.notes || ''}\n[Cancelada por el paciente vía WhatsApp el ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}]`
+                    }).eq("id", upcomingApt.id);
+
+                    await supabaseClient.from("activity_logs").insert({
+                      profile_id: upcomingApt.user_id,
+                      organization_id: upcomingApt.organization_id,
+                      type: 'cancelation',
+                      title: 'Cita Cancelada por WhatsApp',
+                      description: `${cleanPatientFirstName} canceló su cita del ${dateStr} a las ${timeStr} (dentro del límite de ${policyHours}h). El horario ha quedado liberado.`
+                    });
+
+                    const { data: orgData } = await supabaseClient
+                      .from("organizations")
+                      .select("slug")
+                      .eq("id", upcomingApt.organization_id)
+                      .maybeSingle();
+
+                    const bookingLink = orgData?.slug ? `https://app.saudade.mx/reservar/${orgData.slug}` : `https://app.saudade.mx`;
+                    responseText = `Entendido, ${cleanPatientFirstName}. Tu cita ha sido cancelada sin penalización. Si deseas reagendar en un nuevo horario, entra a nuestro calendario aquí: ${bookingLink}`;
+                  } else {
+                    await supabaseClient.from("activity_logs").insert({
+                      profile_id: upcomingApt.user_id,
+                      organization_id: upcomingApt.organization_id,
+                      type: 'cancelation',
+                      title: 'Intento de Cancelación Tardía',
+                      description: `${cleanPatientFirstName} solicitó cancelar su cita del ${dateStr} a las ${timeStr} con menos de ${policyHours}h de anticipación.`
+                    });
+
+                    responseText = `Hola ${cleanPatientFirstName}, hemos recibido tu mensaje. Recuerda que nuestra política requiere al menos ${policyHours} horas de anticipación para cancelaciones. Tu especialista o nuestro equipo se comunicará contigo a la brevedad.`;
+                  }
+                  isGeneralFallback = false;
                 }
-                isGeneralFallback = false;
+              } else {
+                // Verificar si la cita ya estaba confirmada
+                const { data: alreadyConfirmedApt } = await supabaseClient
+                  .from("appointments")
+                  .select("id, start_time")
+                  .eq("patient_id", patientId)
+                  .eq("status", "confirmed")
+                  .gte("start_time", searchFrom)
+                  .order("start_time", { ascending: true })
+                  .limit(1)
+                  .maybeSingle();
+
+                if (alreadyConfirmedApt && isConfirm) {
+                  const aptDate = new Date(alreadyConfirmedApt.start_time);
+                  const dateStr = aptDate.toLocaleDateString("es-MX", { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Mexico_City' });
+                  const timeStr = aptDate.toLocaleTimeString("es-MX", { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
+                  responseText = `¡Hola, ${cleanPatientFirstName}! Tu cita para el ${dateStr} a las ${timeStr} ya se encuentra confirmada. ¡Te esperamos! ✨`;
+                  isGeneralFallback = false;
+                } else {
+                  responseText = `Hola ${cleanPatientFirstName}, no encontramos ninguna cita pendiente de confirmar en este momento, pero hemos recibido tu mensaje. Si deseas agendar, contáctanos.`;
+                  isGeneralFallback = false;
+                }
               }
             }
           }
@@ -492,17 +583,47 @@ serve(async (req) => {
 
             // Try template payload first if template_id is specified
             if (template_id) {
-              const metaTemplateName = (template_id === 'test' || template_id === 'hello_world') ? 'hello_world' : (template_id.includes('reminder') ? 'reminder' : template_id);
-              
-              // Resolve language code according to template configuration in Meta
+              let metaTemplateName = template_id;
               let langCode = language;
-              if (!langCode) {
-                if (template_id === 'cita_cancelada_psicologo' || template_id === 'cita_reprogramada') {
-                  langCode = 'es_MX';
-                } else if (template_id === 'recordatorio_inactivid') {
-                  langCode = 'es';
-                } else {
-                  langCode = 'en_US';
+
+              if (template_id === 'test' || template_id === 'hello_world') {
+                metaTemplateName = 'hello_world';
+                langCode = langCode || 'en_US';
+              } else if (
+                template_id === 'confirmacion_asistencia' || 
+                template_id === 'confirmacion_cita' || 
+                template_id === 'primera_cita' || 
+                template_id.includes('reminder')
+              ) {
+                // Plantilla oficial en Meta: confirmacion_asistencia (en_US)
+                metaTemplateName = 'confirmacion_asistencia';
+                langCode = langCode || 'en_US';
+              } else if (template_id === 'cita_cancelada_psicologo' || template_id === 'cita_reprogramada') {
+                metaTemplateName = template_id;
+                langCode = langCode || 'es_MX';
+              } else if (template_id === 'recordatorio_inactivid') {
+                metaTemplateName = template_id;
+                langCode = langCode || 'es';
+              } else {
+                metaTemplateName = template_id;
+                langCode = langCode || 'en_US';
+              }
+
+              // Normalizar variables según la plantilla
+              let effectiveVariables = template_variables;
+              if (metaTemplateName === 'confirmacion_asistencia' && Array.isArray(template_variables)) {
+                // confirmacion_asistencia en Meta requiere exactamente 4 variables:
+                // {{1}} = Paciente, {{2}} = Especialista, {{3}} = Fecha, {{4}} = Hora
+                if (template_variables.length === 5) {
+                  // Si venía [paciente, especialista, tipo, fecha, hora], extraemos [0, 1, 3, 4]
+                  effectiveVariables = [
+                    template_variables[0],
+                    template_variables[1],
+                    template_variables[3],
+                    template_variables[4]
+                  ];
+                } else if (template_variables.length > 4) {
+                  effectiveVariables = template_variables.slice(0, 4);
                 }
               }
 
@@ -516,11 +637,11 @@ serve(async (req) => {
                 }
               };
 
-              if (template_variables && Array.isArray(template_variables) && template_variables.length > 0) {
+              if (effectiveVariables && Array.isArray(effectiveVariables) && effectiveVariables.length > 0) {
                 templatePayload.template.components = [
                   {
                     type: "body",
-                    parameters: template_variables.map((v: string) => ({
+                    parameters: effectiveVariables.map((v: string) => ({
                       type: "text",
                       text: String(v ?? "")
                     }))
@@ -719,23 +840,22 @@ serve(async (req) => {
 
               // 1. Intentar enviar con formato de Plantilla (Meta Template)
               try {
-                const typeLabel = (apt.type || 'Consulta') + (apt.modality === 'presencial' ? ' Presencial' : ' Online');
                 const timeWithTz = `${timeStr} ${tzLabel}`;
+                const profName = profFullName ? (profPrefix + profFullName).trim() : "tu especialista";
                 
                 const templatePayload = {
                   messaging_product: "whatsapp",
                   to: cleanPhoneTo,
                   type: "template",
                   template: {
-                    name: "confirmacion_cita",
+                    name: "confirmacion_asistencia",
                     language: { code: "en_US" },
                     components: [
                       {
                         type: "body",
                         parameters: [
                           { type: "text", text: nameOnly || "Paciente" },
-                          { type: "text", text: profFullName ? (profPrefix + profFullName).trim() : "tu especialista" },
-                          { type: "text", text: typeLabel },
+                          { type: "text", text: profName },
                           { type: "text", text: dateStr },
                           { type: "text", text: timeWithTz }
                         ]
@@ -754,7 +874,7 @@ serve(async (req) => {
                 });
                 responseData = await tplResponse.json();
                 if (responseData?.error) {
-                  console.error("TEMPLATE ERROR (action: send):", JSON.stringify(responseData.error));
+                  console.error("TEMPLATE ERROR (action: send-batch-reminders):", JSON.stringify(responseData.error));
                 }
               } catch (err: any) {
                 console.error("TEMPLATE FETCH ERROR:", err.message);
@@ -801,7 +921,7 @@ serve(async (req) => {
             direction: "outbound",
             phone: cleanPhoneTo,
             body: body,
-            template_id: "confirmacion_cita",
+            template_id: "confirmacion_asistencia",
             status: isMockMode ? "sent" : "delivered",
             twilio_sid: metaMsgId,
             created_at: new Date().toISOString()

@@ -43,10 +43,11 @@ serve(async (req) => {
       .select(`
         id, 
         patient_id, 
+        patient_name,
+        user_id,
         organization_id, 
         status, 
-        patients (phone, first_name),
-        profiles!appointments_therapist_id_fkey (full_name)
+        patients (id, name, phone)
       `)
       .eq('id', appointment_id)
       .single()
@@ -66,21 +67,63 @@ serve(async (req) => {
       })
     }
 
-    // 1.5 Count completed appointments for this patient
+    // 1.5 Contar sesiones completadas o atendidas del paciente
     const { count: completedCount, error: countError } = await supabaseAdmin
       .from('appointments')
       .select('*', { count: 'exact', head: true })
       .eq('patient_id', appointment.patient_id)
-      .eq('status', 'completed')
+      .in('status', ['completed', 'attended'])
 
     if (countError) throw countError;
 
-    // Only send if it's EXACTLY the 5th completed session
-    if (completedCount !== 5) {
-      return new Response(JSON.stringify({ message: 'Patient has not reached exactly 5 completed appointments. No survey sent.', completedCount }), {
+    // Solo se manda a partir de la 5ta sesión
+    if (!completedCount || completedCount < 5) {
+      return new Response(JSON.stringify({ 
+        message: `El paciente lleva ${completedCount || 0} sesiones. La encuesta de feedback se envía a partir de la 5ta sesión.`, 
+        completedCount 
+      }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
       })
+    }
+
+    // Si el paciente ya envió una reseña, no volver a solicitar para no saturarlo
+    const { data: existingReview } = await supabaseAdmin
+      .from('reviews')
+      .select('id')
+      .eq('patient_id', appointment.patient_id)
+      .maybeSingle()
+
+    if (existingReview) {
+      return new Response(JSON.stringify({ 
+        message: 'El paciente ya envió una reseña previamente.', 
+        skipped: true 
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      })
+    }
+
+    // Verificar si ya se generó una solicitud en los últimos 30 días
+    const { data: recentRequests } = await supabaseAdmin
+      .from('review_requests')
+      .select('id, created_at, appointments!inner(patient_id)')
+      .eq('appointments.patient_id', appointment.patient_id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (recentRequests && recentRequests.length > 0) {
+      const lastSent = new Date(recentRequests[0].created_at)
+      const daysSinceLast = (Date.now() - lastSent.getTime()) / (1000 * 60 * 60 * 24)
+      if (daysSinceLast < 30) {
+        return new Response(JSON.stringify({ 
+          message: 'Ya se envió una invitación de feedback recientemente (hace menos de 30 días).', 
+          skipped: true 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        })
+      }
     }
 
     // 2. Generate or retrieve Review Request token
@@ -130,8 +173,24 @@ serve(async (req) => {
     }
 
     const cleanPhoneTo = formatPhoneForMeta(phone)
-    const therapistName = appointment.profiles?.full_name?.split(' ')[0] || 'tu terapeuta'
-    const patientName = appointment.patients?.first_name || 'paciente'
+
+    // Resolve therapist name with prefix
+    let therapistDisplay = 'tu especialista';
+    if (appointment.user_id) {
+      const { data: prof } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name, prefix, title_prefix')
+        .eq('id', appointment.user_id)
+        .maybeSingle();
+      if (prof?.full_name) {
+        const rawPref = prof.prefix || prof.title_prefix || 'Psic.';
+        const pref = (rawPref && rawPref.toLowerCase() !== 'none') ? `${rawPref.trim()} ` : '';
+        therapistDisplay = `${pref}${prof.full_name}`.trim();
+      }
+    }
+
+    const rawPatientName = appointment.patients?.name || appointment.patient_name || 'paciente';
+    const patientFirstName = rawPatientName.trim().split(' ')[0] || 'paciente';
 
     // Template payload for feedback_survey_2
     const templatePayload = {
@@ -145,8 +204,8 @@ serve(async (req) => {
           {
             type: "body",
             parameters: [
-              { type: "text", text: patientName },
-              { type: "text", text: `Psic. ${therapistName}` }
+              { type: "text", text: patientFirstName },
+              { type: "text", text: therapistDisplay }
             ]
           },
           {

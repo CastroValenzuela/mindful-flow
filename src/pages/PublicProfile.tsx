@@ -75,7 +75,7 @@ const PublicProfile = () => {
                         const { data: reviewsData } = await supabase
                             .from('reviews')
                             .select(`
-                                id, rating, comment, reply_text, replied_at, created_at, is_anonymous,
+                                id, rating, comment, reply_text, replied_at, created_at, is_anonymous, display_name,
                                 patients ( first_name, last_name )
                             `)
                             .eq('organization_id', data.current_organization_id)

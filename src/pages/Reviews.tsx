@@ -34,7 +34,7 @@ export default function Reviews() {
       const { data, error } = await supabase
         .from('reviews')
         .select(`
-          id, rating, comment, reply_text, replied_at, created_at, status, is_anonymous,
+          id, rating, comment, reply_text, replied_at, created_at, status, is_anonymous, display_name,
           patients ( first_name, last_name )
         `)
         .eq('organization_id', profile.organization_id)
@@ -166,7 +166,7 @@ export default function Reviews() {
                       <div>
                         <div className="flex items-center gap-2">
                           <h4 className="font-semibold text-base">
-                            {review.is_anonymous ? 'Paciente Verificado' : `${review.patients?.first_name} ${review.patients?.last_name || ''}`}
+                            {review.is_anonymous ? 'Paciente Verificado' : (review.display_name?.trim() || `${review.patients?.first_name || 'Paciente'} ${review.patients?.last_name ? review.patients.last_name.charAt(0) + '.' : ''}`.trim())}
                           </h4>
                           {review.status === 'reported' && (
                             <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-100 text-amber-700">En Revisión</span>

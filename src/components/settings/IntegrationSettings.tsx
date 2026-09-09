@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertTriangle, CalendarPlus, CheckCircle2, ExternalLink, Loader2, Video } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { AlertTriangle, CalendarPlus, CheckCircle2, ExternalLink, Loader2, Video, Sparkles, ShieldCheck, Link2, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -22,6 +23,10 @@ export default function IntegrationSettings() {
   const [hasZoom, setHasZoom] = useState(false);
   const [stripeStatus, setStripeStatus] = useState<'none' | 'pending' | 'active'>('none');
 
+  const [defaultPlatform, setDefaultPlatform] = useState<string>('saudade');
+  const [customLink, setCustomLink] = useState<string>('');
+  const [isSavingPlatform, setIsSavingPlatform] = useState(false);
+
   const [isLinking, setIsLinking] = useState(false);
   const [isUnlinking, setIsUnlinking] = useState(false);
   const [isLinkingStripe, setIsLinkingStripe] = useState(false);
@@ -34,6 +39,8 @@ export default function IntegrationSettings() {
       setHasGoogleCalendar(!!profile.google_refresh_token);
       setHasOutlookCalendar(!!profile.microsoft_refresh_token);
       setHasZoom(!!profile.zoom_refresh_token);
+      setDefaultPlatform(profile.default_meeting_platform || (profile.google_refresh_token ? 'meet' : 'saudade'));
+      setCustomLink(profile.custom_meeting_link || '');
 
       if (profile.stripe_account_id) {
         const isActive = profile.stripe_account_status === 'active';
@@ -43,6 +50,28 @@ export default function IntegrationSettings() {
       }
     }
   }, [profile]);
+
+  const handleSavePlatform = async (newPlatform: string, newLink?: string) => {
+    if (!user) return;
+    setIsSavingPlatform(true);
+    try {
+      await updateProfileMutation.mutateAsync({
+        userId: user.id,
+        data: {
+          default_meeting_platform: newPlatform,
+          custom_meeting_link: newLink !== undefined ? newLink : customLink
+        }
+      });
+      setDefaultPlatform(newPlatform);
+      if (newLink !== undefined) setCustomLink(newLink);
+      toast.success('Plataforma de teleconsulta actualizada');
+      refetch();
+    } catch (err: any) {
+      toast.error('Error al guardar plataforma: ' + err.message);
+    } finally {
+      setIsSavingPlatform(false);
+    }
+  };
 
   const handleCodeResponse = useCallback(async (code: string) => {
     if (!user) return;
@@ -393,6 +422,196 @@ export default function IntegrationSettings() {
       </div>
 
       <div className="space-y-10">
+        {/* Telehealth Default Platform - Provider-Led Standard */}
+        {(integrationFilter === 'all' || integrationFilter === 'video') && (
+          <div className="bg-card border border-primary/20 rounded-3xl p-6 shadow-sm relative overflow-hidden bg-gradient-to-br from-card via-card to-primary/[0.03]">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 font-bold text-[10px] uppercase tracking-wider px-2 py-0.5">
+                    <Sparkles className="w-3 h-3 mr-1 inline" /> Estándar Clínico
+                  </Badge>
+                  <h3 className="text-base font-bold text-foreground">Consultorio Virtual & Plataforma de Teleconsulta</h3>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Define cómo se conectarán tus pacientes a tus sesiones online. Tus pacientes no tendrán que elegir ni adivinar qué app usar; el sistema generará y les entregará tu enlace automáticamente.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* Option 1: Google Meet */}
+              <div 
+                onClick={() => handleSavePlatform('meet')}
+                className={cn(
+                  "border rounded-2xl p-4 cursor-pointer transition-all flex flex-col justify-between relative text-left group",
+                  defaultPlatform === 'meet'
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
+                    : "border-border/70 hover:border-primary/40 hover:bg-muted/30"
+                )}
+              >
+                <div>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="h-10 w-10 rounded-xl bg-green-50 flex items-center justify-center shrink-0 border border-green-100">
+                      <svg className="h-5 w-5" viewBox="0 0 24 24">
+                        <path fill="#00AC47" d="M16 10v-3.5c0-.83-.67-1.5-1.5-1.5h-10c-.83 0-1.5.67-1.5 1.5v9c0 .83.67 1.5 1.5 1.5h10c.83 0 1.5-.67 1.5-1.5v-3.5l4 4v-11l-4 4z" />
+                      </svg>
+                    </div>
+                    {defaultPlatform === 'meet' && (
+                      <Badge className="bg-primary text-white text-[10px] font-bold">Activo</Badge>
+                    )}
+                  </div>
+                  <h4 className="font-bold text-sm text-foreground">Google Meet</h4>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    Crea enlaces únicos automáticos sincronizados con tu Google Calendar.
+                  </p>
+                </div>
+                <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[11px]">
+                  <span className={cn("font-medium", hasGoogleCalendar ? "text-success" : "text-amber-600")}>
+                    {hasGoogleCalendar ? "✓ Google conectado" : "⚠️ Requiere vincular Google"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Option 2: Consultorio Virtual Saudade */}
+              <div 
+                onClick={() => handleSavePlatform('saudade')}
+                className={cn(
+                  "border rounded-2xl p-4 cursor-pointer transition-all flex flex-col justify-between relative text-left group",
+                  defaultPlatform === 'saudade'
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
+                    : "border-border/70 hover:border-primary/40 hover:bg-muted/30"
+                )}
+              >
+                <div>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20 text-primary">
+                      <ShieldCheck className="h-5 w-5" />
+                    </div>
+                    {defaultPlatform === 'saudade' ? (
+                      <Badge className="bg-primary text-white text-[10px] font-bold">Activo</Badge>
+                    ) : (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">Recomendado</Badge>
+                    )}
+                  </div>
+                  <h4 className="font-bold text-sm text-foreground">Consultorio Saudade</h4>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    Sala WebRTC cifrada en el navegador. 1 clic para el paciente, sin apps ni cuentas.
+                  </p>
+                </div>
+                <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[11px]">
+                  <span className="text-success font-medium">✓ Listo para usar (HIPAA)</span>
+                </div>
+              </div>
+
+              {/* Option 3: Zoom */}
+              <div 
+                onClick={() => handleSavePlatform('zoom')}
+                className={cn(
+                  "border rounded-2xl p-4 cursor-pointer transition-all flex flex-col justify-between relative text-left group",
+                  defaultPlatform === 'zoom'
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
+                    : "border-border/70 hover:border-primary/40 hover:bg-muted/30"
+                )}
+              >
+                <div>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100 text-[#2D8CFF]">
+                      <Video className="h-5 w-5" />
+                    </div>
+                    {defaultPlatform === 'zoom' && (
+                      <Badge className="bg-primary text-white text-[10px] font-bold">Activo</Badge>
+                    )}
+                  </div>
+                  <h4 className="font-bold text-sm text-foreground">Zoom</h4>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    Videollamadas estables con ID de reunión y sala de espera.
+                  </p>
+                </div>
+                <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[11px]">
+                  <span className={cn("font-medium", hasZoom ? "text-success" : "text-muted-foreground")}>
+                    {hasZoom ? "✓ Zoom conectado" : "Conexión opcional"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Option 4: WhatsApp Video */}
+              <div 
+                onClick={() => handleSavePlatform('whatsapp')}
+                className={cn(
+                  "border rounded-2xl p-4 cursor-pointer transition-all flex flex-col justify-between relative text-left group",
+                  defaultPlatform === 'whatsapp'
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
+                    : "border-border/70 hover:border-primary/40 hover:bg-muted/30"
+                )}
+              >
+                <div>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0 border border-emerald-100 text-emerald-600">
+                      <MessageSquare className="h-5 w-5" />
+                    </div>
+                    {defaultPlatform === 'whatsapp' && (
+                      <Badge className="bg-primary text-white text-[10px] font-bold">Activo</Badge>
+                    )}
+                  </div>
+                  <h4 className="font-bold text-sm text-foreground">WhatsApp Video</h4>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    Llamarás directamente al número del paciente a la hora de la sesión.
+                  </p>
+                </div>
+                <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground font-medium">Ideal pacientes adultos</span>
+                </div>
+              </div>
+
+              {/* Option 5: Enlace Fijo Personalizado */}
+              <div 
+                onClick={() => handleSavePlatform('custom')}
+                className={cn(
+                  "border rounded-2xl p-4 cursor-pointer transition-all flex flex-col justify-between relative text-left group sm:col-span-2",
+                  defaultPlatform === 'custom'
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
+                    : "border-border/70 hover:border-primary/40 hover:bg-muted/30"
+                )}
+              >
+                <div>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="h-10 w-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0 border border-purple-100 text-purple-600">
+                      <Link2 className="h-5 w-5" />
+                    </div>
+                    {defaultPlatform === 'custom' && (
+                      <Badge className="bg-primary text-white text-[10px] font-bold">Activo</Badge>
+                    )}
+                  </div>
+                  <h4 className="font-bold text-sm text-foreground">Enlace Fijo Personalizado</h4>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    Pega un enlace recurrente propio que uses siempre (Doxy.me, Teams o tu sala personal fija).
+                  </p>
+                </div>
+                {defaultPlatform === 'custom' && (
+                  <div className="mt-3 pt-3 border-t border-border/40 flex gap-2" onClick={e => e.stopPropagation()}>
+                    <Input 
+                      placeholder="https://meet.google.com/... o https://doxy.me/..."
+                      value={customLink}
+                      onChange={e => setCustomLink(e.target.value)}
+                      className="h-9 text-xs bg-card"
+                    />
+                    <Button 
+                      size="sm" 
+                      variant="zen"
+                      className="h-9 px-3 shrink-0 text-xs font-bold"
+                      disabled={isSavingPlatform}
+                      onClick={() => handleSavePlatform('custom', customLink)}
+                    >
+                      {isSavingPlatform ? <Loader2 className="w-3 h-3 animate-spin" /> : "Guardar"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Connected Section */}
         {integrationFilter === 'all' && (hasGoogleCalendar || hasOutlookCalendar || hasZoom) && (
           <div className="space-y-4">

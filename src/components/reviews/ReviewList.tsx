@@ -12,6 +12,7 @@ export interface Review {
   replied_at: string | null;
   created_at: string;
   is_anonymous: boolean;
+  display_name?: string | null;
   patients?: {
     first_name: string;
     last_name: string;
@@ -39,11 +40,17 @@ export function ReviewList({ reviews, therapistName }: ReviewListProps) {
   }
 
   const formatReviewerName = (review: Review) => {
-    if (review.is_anonymous || !review.patients) {
+    if (review.is_anonymous) {
       return 'Paciente Verificado';
     }
-    const { first_name, last_name } = review.patients;
-    return `${first_name} ${last_name ? last_name.charAt(0) + '.' : ''}`.trim();
+    if (review.display_name && review.display_name.trim()) {
+      return review.display_name.trim();
+    }
+    if (review.patients) {
+      const { first_name, last_name } = review.patients;
+      return `${first_name} ${last_name ? last_name.charAt(0) + '.' : ''}`.trim();
+    }
+    return 'Paciente Verificado';
   };
 
   return (

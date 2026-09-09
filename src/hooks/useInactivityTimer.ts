@@ -1,9 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
 
 interface UseInactivityTimerOptions {
-    /** Segundos de inactividad antes de mostrar el warning (default: 30) */
+    /** Segundos de inactividad antes de mostrar el warning (default: 900 = 15 min) */
     inactivitySeconds?: number;
-    /** Segundos del countdown antes de cerrar sesión (default: 30) */
+    /** Segundos del countdown antes de cerrar sesión (default: 60 = 1 min) */
     countdownSeconds?: number;
     onWarning: () => void;   // Llamado cuando se alcanza el timeout de inactividad
     onTimeout: () => void;   // Llamado cuando el countdown llega a 0
@@ -19,8 +19,8 @@ const ACTIVITY_EVENTS: (keyof DocumentEventMap)[] = [
  * Si el usuario no responde, llama onTimeout() tras `countdownSeconds` adicionales.
  */
 const useInactivityTimer = ({
-    inactivitySeconds = 30,
-    countdownSeconds = 30,
+    inactivitySeconds = 900,
+    countdownSeconds = 60,
     onWarning,
     onTimeout,
 }: UseInactivityTimerOptions) => {
@@ -62,10 +62,12 @@ const useInactivityTimer = ({
 
         // Escuchar actividad del usuario
         ACTIVITY_EVENTS.forEach(evt => document.addEventListener(evt, resetTimer, { passive: true }));
+        window.addEventListener('mindful-keepalive', resetTimer);
 
         return () => {
             clearAll();
             ACTIVITY_EVENTS.forEach(evt => document.removeEventListener(evt, resetTimer));
+            window.removeEventListener('mindful-keepalive', resetTimer);
         };
     }, [resetTimer, clearAll]);
 

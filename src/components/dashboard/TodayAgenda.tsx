@@ -117,7 +117,7 @@ const TodayAgenda = ({ appointments }: TodayAgendaProps) => {
                 <div className="flex items-center gap-1">
                   {appointment.phone && (
                     <a
-                      href={`https://wa.me/${appointment.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hola ${appointment.patientName}, te recuerdo tu cita de ${appointment.type} hoy a las ${format(parseISO(appointment.startTime), 'HH:mm')}. ¿Confirmas asistencia?`)}`}
+                      href={`https://wa.me/${appointment.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hola ${appointment.patientName}, te recuerdo tu cita de ${appointment.type} hoy a las ${format(parseISO(appointment.startTime), 'HH:mm')}.\n\n👉 Responde *"Sí, asistiré"* para confirmar en un clic o avísanos si necesitas cambiar algo.`)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1.5 rounded-md hover:bg-success/10 text-success transition-all"

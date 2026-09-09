@@ -175,13 +175,14 @@ export default function SecuritySettings() {
                     min={1}
                     max={24}
                     step={1}
-                    value={notif.recordatorio_horas ?? 24}
+                    value={notif.recordatorio_horas === 0 ? '' : (notif.recordatorio_horas ?? 24)}
                     onChange={(e) => {
-                      let val = parseInt(e.target.value);
-                      if (isNaN(val)) val = 24;
-                      if (val > 24) val = 24;
-                      if (val < 1) val = 1;
-                      setNotif({ ...notif, recordatorio_horas: val });
+                      const val = e.target.value;
+                      setNotif({ ...notif, recordatorio_horas: val === '' ? ('' as any) : parseInt(val, 10) || ('' as any) });
+                    }}
+                    onBlur={() => {
+                      const num = parseInt(String(notif.recordatorio_horas), 10);
+                      setNotif(prev => ({ ...prev, recordatorio_horas: isNaN(num) || num < 1 ? 24 : Math.min(24, num) }));
                     }}
                     className="w-20 text-center bg-background font-bold text-primary"
                   />

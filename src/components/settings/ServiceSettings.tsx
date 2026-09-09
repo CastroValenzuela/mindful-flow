@@ -312,8 +312,8 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden rounded-3xl">
-        <div className={cn("h-2 w-full", {
+      <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden rounded-3xl max-h-[90vh] flex flex-col">
+        <div className={cn("h-2 w-full shrink-0", {
           'bg-violet-500': formData.color === 'violet',
           'bg-blue-500': formData.color === 'blue',
           'bg-emerald-500': formData.color === 'green',
@@ -322,7 +322,7 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
           'bg-indigo-500': formData.color === 'indigo',
         })} />
         
-        <DialogHeader className="px-6 pt-6 pb-2">
+        <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
           <DialogTitle className="text-xl font-bold flex items-center gap-2">
             {service ? 'Editar Servicio' : 'Nuevo Servicio de Agenda'}
           </DialogTitle>
@@ -331,7 +331,7 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 py-4 space-y-5">
+        <div className="px-6 py-4 space-y-5 overflow-y-auto flex-1">
           <div className="space-y-1.5">
             <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nombre del Servicio *</Label>
             <Input 
@@ -348,8 +348,16 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
               <div className="relative">
                 <Input 
                   type="number" 
-                  value={formData.duration}
-                  onChange={e => setFormData({ ...formData, duration: parseInt(e.target.value) || 0 })}
+                  value={formData.duration === 0 ? '' : formData.duration}
+                  placeholder="50"
+                  onChange={e => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, duration: val === '' ? ('' as any) : parseInt(val, 10) || '' as any });
+                  }}
+                  onBlur={() => {
+                    const v = parseInt(String(formData.duration), 10);
+                    setFormData(prev => ({ ...prev, duration: isNaN(v) || v <= 0 ? 50 : v }));
+                  }}
                   className="rounded-xl h-11 border-border/60 pl-10"
                 />
                 <Clock className="absolute left-3.5 top-3.5 h-4 w-4 text-muted-foreground/50" />
@@ -360,9 +368,17 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
               <div className="relative">
                 <Input 
                   type="number" 
-                  value={formData.price}
-                  onChange={e => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                  className="rounded-xl h-11 border-border/60 pl-10"
+                  value={formData.price === 0 ? '' : formData.price}
+                  placeholder="0"
+                  onChange={e => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, price: val === '' ? ('' as any) : parseFloat(val) || '' as any });
+                  }}
+                  onBlur={() => {
+                    const v = parseFloat(String(formData.price));
+                    setFormData(prev => ({ ...prev, price: isNaN(v) ? 0 : Math.max(0, v) }));
+                  }}
+                  className="rounded-xl h-11 border-border/60 pl-10 font-medium"
                 />
                 <DollarSign className="absolute left-3.5 top-3.5 h-4 w-4 text-muted-foreground/50" />
               </div>
@@ -461,7 +477,7 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
           </div>
         </div>
 
-        <DialogFooter className="px-6 py-6 bg-muted/20 gap-3 border-t border-border/50">
+        <DialogFooter className="px-6 py-4 bg-muted/20 gap-3 border-t border-border/50 shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-xl h-11 px-6 font-bold">
             Cancelar
           </Button>
@@ -469,10 +485,10 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
             variant="zen" 
             onClick={() => onSave(formData)} 
             disabled={isSaving || !formData.name}
-            className="rounded-xl h-11 px-8 font-bold gap-2"
+            className="rounded-xl h-11 px-8 font-bold gap-2 shadow-sm"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {service ? 'Actualizar Servicio' : 'Crear Servicio'}
+            {service ? 'Actualizar Servicio' : 'Guardar Servicio'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -58,8 +58,8 @@ function getTemplateMessage(templateId: string, name: string): string {
   const firstName = formattedName.split(' ')[0];
 
   const templates: Record<string, string> = {
-    reminder_short: `¡Hola, ${firstName}! ✨ Te esperamos el [Fecha] a las [Hora] para tu cita. Estamos listos para recibirte. Si necesitas confirmar o realizar algún cambio, responde a este mensaje. ¡Nos vemos pronto!`,
-    reminder_presential: `¡Hola, ${firstName}! ✨ Te esperamos el [Fecha] a las [Hora] en [Dirección/Lugar]. Puedes guiarte con este mapa: [Link de Google Maps]. Si tienes alguna duda, puedes responder directamente aquí. ¡Qué ganas de verte!`,
+    reminder_short: `¡Hola, ${firstName}! ✨ Te recordamos tu cita el [Fecha] a las [Hora]. Estamos listos para recibirte.\n\n👉 Responde *"Sí, asistiré"* para confirmar tu cita en un clic, o *"No podré asistir"* si necesitas reagendar. ¡Nos vemos pronto!`,
+    reminder_presential: `¡Hola, ${firstName}! ✨ Te recordamos tu cita presencial el [Fecha] a las [Hora] en [Dirección/Lugar]. Puedes guiarte con este mapa: [Link de Google Maps].\n\n👉 Responde *"Sí, asistiré"* para confirmar tu cita en un clic, o *"No podré asistir"* si necesitas reagendar. ¡Qué ganas de verte!`,
     payment_reminder: `¡Hola, ${firstName}! 🌿 Esperamos que estés muy bien. Te compartimos el recordatorio amable de tu saldo por las sesiones realizadas ($[Monto] MXN).\n\n💳 Puedes realizar tu pago de forma segura aquí: [Link de Pago]\n\nO si realizaste transferencia, puedes responder a este mensaje adjuntando tu comprobante. ¡Muchas gracias por tu confianza!`,
     reactivation: `¡Hola, ${firstName}! Te hemos extrañado. 😊 ¿Te gustaría retomar tu espacio con nosotros? Puedes consultar la disponibilidad de agenda aquí: [Enlace]. ¡Será un gusto volver a coincidir!`,
     task_reminder: `¡Hola, ${firstName}! Paso a recordarte con mucho gusto que tienes pendiente completar: [Nombre de la tarea] para el [Fecha]. ¡Cada avance cuenta! Si tienes cualquier duda, responde aquí.`,

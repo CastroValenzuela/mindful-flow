@@ -241,6 +241,30 @@ export default function NoteEditorSheet({
     return () => clearTimeout(timer);
   }, [editorContent, bulletPoints, cie10Code, cie10Description, diagnosticoPrincipal, isOpen, isDirty, patientId, note]);
 
+  // Escuchar vaciado de emergencia ante timeout de inactividad
+  useEffect(() => {
+    const handleEmergencySave = () => {
+      if (isOpen && isDirty) {
+        const draftKey = `mindful-flow-draft-${patientId}-${note?.id || 'new'}`;
+        const payload = {
+          editorContent,
+          bulletPoints,
+          cie10Code,
+          cie10Description,
+          diagnosticoPrincipal,
+          timestamp: Date.now()
+        };
+        try {
+          localStorage.setItem(draftKey, JSON.stringify(payload));
+        } catch (e) {
+          console.warn('Error en guardado de emergencia:', e);
+        }
+      }
+    };
+    window.addEventListener('mindful-emergency-save', handleEmergencySave);
+    return () => window.removeEventListener('mindful-emergency-save', handleEmergencySave);
+  }, [isOpen, isDirty, patientId, note, editorContent, bulletPoints, cie10Code, cie10Description, diagnosticoPrincipal]);
+
   const handleRestoreDraft = () => {
     if (!draftData) return;
     setEditorContent(draftData.editorContent || '');

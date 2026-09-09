@@ -98,7 +98,7 @@ const BookingPage = () => {
       try {
         const { data, error } = await supabase
           .from('public_profiles_view')
-          .select('id, full_name, avatar_url, prefix, horario_atencion, slug, current_organization_id, porcentaje_consultorio, reschedule_policy_hours')
+          .select('id, full_name, avatar_url, prefix, horario_atencion, slug, current_organization_id, porcentaje_consultorio, reschedule_policy_hours, default_meeting_platform, custom_meeting_link, has_google_calendar, has_zoom')
           .eq('slug', slug)
           .single();
 
@@ -106,6 +106,8 @@ const BookingPage = () => {
           setNotFound(true);
         } else {
           setProfile(data);
+          const initialPlat = data.default_meeting_platform || (data.has_google_calendar ? 'meet' : 'saudade');
+          setMeetingPlatform(initialPlat);
           
           if (data.current_organization_id) {
             supabase
@@ -323,11 +325,6 @@ const BookingPage = () => {
     e.preventDefault();
     if (!profile || !selectedDate || !selectedTime) return;
 
-    if (modality === 'Videollamada' && !meetingPlatform) {
-      toast.error('Por favor, selecciona una plataforma de videollamada.');
-      return;
-    }
-
     if (modality === 'Presencial' && !location.trim()) {
       toast.error('Por favor, ingresa la ubicación o consultorio.');
       return;
@@ -402,7 +399,10 @@ const BookingPage = () => {
       const appointmentId = crypto.randomUUID();
 
       if (modality === 'Videollamada') {
-        finalPlatform = meetingPlatform;
+        // Enfoque Top de la Industria: La plataforma la define el especialista
+        finalPlatform = profile.default_meeting_platform || (profile.has_google_calendar ? 'meet' : 'saudade');
+        setMeetingPlatform(finalPlatform);
+
         if (finalPlatform === 'meet') {
           try {
             const { data, error: syncErr } = await supabase.functions.invoke('google-calendar-sync', {
@@ -423,24 +423,30 @@ const BookingPage = () => {
           } catch (err) {
             console.error("Error sincronizando y creando Meet:", err);
           }
-        } else {
-          // If not 'meet', sync to calendar without generating meet link
+          // Si no se generó enlace de Meet (ej. Google no vinculado), fallback al consultorio virtual
+          if (!finalMeetLink) {
+            finalMeetLink = `${window.location.origin}/join/${appointmentId}`;
+          }
+        } else if (finalPlatform === 'saudade') {
+          finalMeetLink = `${window.location.origin}/join/${appointmentId}`;
+          // Sincronizar hacia Google Calendar si está conectado
           supabase.functions.invoke('google-calendar-sync', {
             body: {
               slug: profile.slug,
               event: {
-                summary: `Cita Saudade: ${patientInfo.name} (${finalPlatform})`,
-                description: `Teléfono: ${patientInfo.phone}\nCorreo: ${patientInfo.email}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nAgendada desde el Portal Público.`,
+                summary: `Cita Saudade: ${patientInfo.name} (Online)`,
+                description: `Teléfono: ${patientInfo.phone}\nCorreo: ${patientInfo.email}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nSala: ${finalMeetLink}\nAgendada desde el Portal Público.`,
                 start: { dateTime: startTime.toISOString() },
                 end: { dateTime: endTime.toISOString() },
               }
             }
           }).catch(err => console.error('Error sincronizando agenda:', err));
-        }
-
-        // Si no se generó enlace de Meet (por ejemplo, Google Calendar no conectado), usar Saudade integrado
-        if (finalPlatform === 'saudade') {
-          finalMeetLink = `${window.location.origin}/join/${appointmentId}`;
+        } else if (finalPlatform === 'zoom') {
+          finalMeetLink = profile.custom_meeting_link || `https://zoom.us/j/${appointmentId.replace(/\D/g, '').slice(0, 10)}`;
+        } else if (finalPlatform === 'custom') {
+          finalMeetLink = profile.custom_meeting_link || `${window.location.origin}/join/${appointmentId}`;
+        } else if (finalPlatform === 'whatsapp') {
+          finalMeetLink = `https://wa.me/${patientInfo.phone.replace(/\D/g, '')}`;
         }
       } else {
         // Presencial: sincronizamos asíncronamente en el fondo sin esperar
@@ -869,27 +875,58 @@ const BookingPage = () => {
                     </div>
                   </div>
 
-                  {modality === 'Videollamada' && (
-                    <div className="space-y-2 animate-fade-in mt-4">
-                      <Label htmlFor="platform">Plataforma de Videollamada *</Label>
-                      <Select 
-                        value={meetingPlatform} 
-                        onValueChange={setMeetingPlatform} 
-                        required
-                      >
-                        <SelectTrigger className="bg-card">
-                          <SelectValue placeholder="Selecciona una plataforma" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="saudade">Consultorio Virtual Saudade</SelectItem>
-                          <SelectItem value="meet">Google Meet</SelectItem>
-                          <SelectItem value="zoom">Zoom</SelectItem>
-                          <SelectItem value="whatsapp">WhatsApp Video</SelectItem>
-                          <SelectItem value="otra">Otra plataforma</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                  {modality === 'Videollamada' && (() => {
+                    const effPlatform = profile?.default_meeting_platform || (profile?.has_google_calendar ? 'meet' : 'saudade');
+                    
+                    const platformInfo = ({
+                      meet: {
+                        name: 'Google Meet',
+                        desc: 'Tu sesión se llevará a cabo por Google Meet. Tu enlace privado se generará automáticamente y te llegará por WhatsApp y correo electrónico.',
+                        badge: 'Enlace automático de 1 clic'
+                      },
+                      saudade: {
+                        name: 'Consultorio Virtual Saudade',
+                        desc: 'Sala de videollamada cifrada y segura. Accederás directo desde tu navegador (celular o computadora) con 1 solo clic, sin instalar nada.',
+                        badge: 'Cifrado HIPAA • Sin descargas'
+                      },
+                      zoom: {
+                        name: 'Zoom',
+                        desc: 'Tu sesión se realizará por Zoom. Recibirás tu enlace de acceso directo y contraseña en tu confirmación.',
+                        badge: 'Sala de espera activa'
+                      },
+                      whatsapp: {
+                        name: 'WhatsApp Video',
+                        desc: 'Tu especialista se comunicará por videollamada a tu número de WhatsApp a la hora acordada.',
+                        badge: 'Llamada directa'
+                      },
+                      custom: {
+                        name: 'Videollamada Online',
+                        desc: 'Recibirás el enlace de acceso directo para tu sesión en tu confirmación por WhatsApp y correo electrónico.',
+                        badge: 'Enlace privado'
+                      }
+                    } as Record<string, { name: string; desc: string; badge: string }>)[effPlatform] || {
+                      name: 'Consultorio Virtual',
+                      desc: 'Recibirás tu enlace de acceso directo al confirmar tu cita.',
+                      badge: '1 Clic'
+                    };
+
+                    return (
+                      <div className="p-4 rounded-2xl border border-primary/20 bg-primary/[0.04] space-y-2 mt-4 animate-fade-in text-left relative overflow-hidden">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-primary font-bold text-sm">
+                            <Video className="w-4 h-4" />
+                            <span>{platformInfo.name}</span>
+                          </div>
+                          <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[10px] font-semibold py-0.5 px-2">
+                            {platformInfo.badge}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {platformInfo.desc}
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   {modality === 'Presencial' && (
                     <div className="space-y-2 animate-fade-in mt-4">

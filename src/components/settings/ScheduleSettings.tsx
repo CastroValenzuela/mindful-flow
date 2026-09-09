@@ -53,7 +53,11 @@ export default function ScheduleSettings() {
     dias_no_laborables: [],
   });
 
-  const [commissions, setCommissions] = useState({
+  const [commissions, setCommissions] = useState<{
+    stripe_fee_percent: number | string;
+    porcentaje_consultorio: number | string;
+    reschedule_policy_hours: number | string;
+  }>({
     stripe_fee_percent: 5.14,
     porcentaje_consultorio: 30,
     reschedule_policy_hours: 24,
@@ -187,16 +191,20 @@ export default function ScheduleSettings() {
     }
 
     try {
+      const pctConsultorio = commissions.porcentaje_consultorio === '' ? 0 : parseFloat(String(commissions.porcentaje_consultorio)) || 0;
+      const stripeFee = commissions.stripe_fee_percent === '' ? 0 : parseFloat(String(commissions.stripe_fee_percent)) || 0;
+      const rescheduleHours = commissions.reschedule_policy_hours === '' ? 24 : parseInt(String(commissions.reschedule_policy_hours), 10) || 0;
+
       await updateProfileMutation.mutateAsync({
         userId: user.id,
         data: {
           horario_atencion: horario,
-          porcentaje_consultorio: commissions.porcentaje_consultorio,
-          stripe_fee_percent: commissions.stripe_fee_percent,
-          reschedule_policy_hours: commissions.reschedule_policy_hours,
+          porcentaje_consultorio: pctConsultorio,
+          stripe_fee_percent: stripeFee,
+          reschedule_policy_hours: rescheduleHours,
         }
       });
-      toast.success('Ajustes guardados');
+      toast.success('Ajustes guardados correctamente');
     } catch (err: any) {
       toast.error('Error al guardar: ' + err.message);
     }
@@ -228,7 +236,7 @@ export default function ScheduleSettings() {
           {updateProfileMutation.isLoading ? (
             <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</>
           ) : (
-            <><Check className="h-4 w-4 stroke-[3]" /> Guardar Horarios</>
+            <><Check className="h-4 w-4 stroke-[3]" /> Guardar Configuración</>
           )}
         </Button>
       </div>
@@ -462,14 +470,30 @@ export default function ScheduleSettings() {
       {/* Comisiones */}
       <Card variant="flat" className="border border-border">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10">
-              <DollarSign className="h-4 w-4 text-success" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10">
+                <DollarSign className="h-4 w-4 text-success" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Comisiones</CardTitle>
+                <CardDescription>Configura el reparto entre consultorio y tus honorarios netos</CardDescription>
+              </div>
             </div>
-            <div>
-              <CardTitle className="text-base">Comisiones</CardTitle>
-              <CardDescription>Configura el reparto entre consultorio y tus honorarios netos</CardDescription>
-            </div>
+            <Button 
+              type="button" 
+              variant="zen" 
+              size="sm"
+              disabled={updateProfileMutation.isLoading} 
+              className="gap-1.5 font-bold px-4 hidden sm:flex" 
+              onClick={handleSaveHorarios}
+            >
+              {updateProfileMutation.isLoading ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Guardando...</>
+              ) : (
+                <><Check className="h-3.5 w-3.5 stroke-[3]" /> Guardar Comisiones</>
+              )}
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -483,10 +507,18 @@ export default function ScheduleSettings() {
                 id="stripe_fee"
                 type="number"
                 min={0}
-                max={10}
+                max={100}
                 step={0.01}
-                value={commissions.stripe_fee_percent}
-                onChange={(e) => setCommissions({ ...commissions, stripe_fee_percent: parseFloat(e.target.value) || 0 })}
+                placeholder="0"
+                value={commissions.stripe_fee_percent === 0 ? '' : commissions.stripe_fee_percent}
+                onChange={(e) => setCommissions({ ...commissions, stripe_fee_percent: e.target.value })}
+                onBlur={() => {
+                  const num = parseFloat(String(commissions.stripe_fee_percent));
+                  setCommissions(prev => ({
+                    ...prev,
+                    stripe_fee_percent: isNaN(num) ? 0 : Math.min(100, Math.max(0, num))
+                  }));
+                }}
                 className="max-w-[120px]"
                 disabled={updateProfileMutation.isLoading}
               />
@@ -506,13 +538,21 @@ export default function ScheduleSettings() {
                 min={0}
                 max={100}
                 step={1}
-                value={commissions.porcentaje_consultorio}
-                onChange={(e) => setCommissions({ ...commissions, porcentaje_consultorio: parseFloat(e.target.value) || 0 })}
+                placeholder="0"
+                value={commissions.porcentaje_consultorio === 0 ? '' : commissions.porcentaje_consultorio}
+                onChange={(e) => setCommissions({ ...commissions, porcentaje_consultorio: e.target.value })}
+                onBlur={() => {
+                  const num = parseFloat(String(commissions.porcentaje_consultorio));
+                  setCommissions(prev => ({
+                    ...prev,
+                    porcentaje_consultorio: isNaN(num) ? 0 : Math.min(100, Math.max(0, num))
+                  }));
+                }}
                 className="max-w-[120px]"
                 disabled={updateProfileMutation.isLoading}
               />
               <span className="text-sm text-muted-foreground">
-                Tú recibes: <strong>{(100 - commissions.porcentaje_consultorio).toFixed(0)}%</strong>
+                Tú recibes: <strong>{(100 - (parseFloat(String(commissions.porcentaje_consultorio)) || 0)).toFixed(0)}%</strong>
               </span>
             </div>
           </div>
@@ -521,16 +561,18 @@ export default function ScheduleSettings() {
           <div className="rounded-xl bg-muted/40 p-4 space-y-2 text-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Vista previa — sesión de $900 MXN</p>
             {(() => {
+              const feePct = parseFloat(String(commissions.stripe_fee_percent)) || 0;
+              const consultorioPct = parseFloat(String(commissions.porcentaje_consultorio)) || 0;
               const bruto = 900;
-              const fee = bruto * (commissions.stripe_fee_percent / 100);
+              const fee = bruto * (feePct / 100);
               const neto = bruto - fee;
-              const consultorio = neto * (commissions.porcentaje_consultorio / 100);
+              const consultorio = neto * (consultorioPct / 100);
               const psicologo = neto - consultorio;
               return (<>
                 <div className="flex justify-between"><span className="text-muted-foreground">Cobrado al paciente</span><span>${bruto.toFixed(2)}</span></div>
-                <div className="flex justify-between text-destructive"><span>− Fees Stripe ({commissions.stripe_fee_percent}%)</span><span>−${fee.toFixed(2)}</span></div>
+                <div className="flex justify-between text-destructive"><span>− Fees Stripe ({feePct}%)</span><span>−${fee.toFixed(2)}</span></div>
                 <div className="flex justify-between font-semibold border-t pt-2"><span>Neto</span><span>${neto.toFixed(2)}</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>Consultorio ({commissions.porcentaje_consultorio}%)</span><span>−${consultorio.toFixed(2)}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Consultorio ({consultorioPct}%)</span><span>−${consultorio.toFixed(2)}</span></div>
                 <div className="flex justify-between text-success font-bold text-base border-t pt-2"><span>Ingreso Neto del Psicólogo</span><span>${psicologo.toFixed(2)} MXN</span></div>
               </>);
             })()}
@@ -541,10 +583,10 @@ export default function ScheduleSettings() {
               type="button" 
               variant="zen" 
               disabled={updateProfileMutation.isLoading} 
-              className="gap-2" 
+              className="gap-2 font-bold px-6" 
               onClick={handleSaveHorarios}
             >
-              {updateProfileMutation.isLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</> : 'Guardar'}
+              {updateProfileMutation.isLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</> : <><Check className="h-4 w-4 stroke-[3]" /> Guardar Comisiones</>}
             </Button>
           </div>
         </CardContent>
@@ -553,14 +595,30 @@ export default function ScheduleSettings() {
       {/* Políticas de Cancelación */}
       <Card variant="flat" className="border border-border">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Políticas de Cancelación</CardTitle>
+                <CardDescription>Configura las reglas de reprogramación y cancelación de citas para tus pacientes</CardDescription>
+              </div>
             </div>
-            <div>
-              <CardTitle className="text-base">Políticas de Cancelación</CardTitle>
-              <CardDescription>Configura las reglas de reprogramación y cancelación de citas para tus pacientes</CardDescription>
-            </div>
+            <Button 
+              type="button" 
+              variant="zen" 
+              size="sm"
+              disabled={updateProfileMutation.isLoading} 
+              className="gap-1.5 font-bold px-4 hidden sm:flex" 
+              onClick={handleSaveHorarios}
+            >
+              {updateProfileMutation.isLoading ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Guardando...</>
+              ) : (
+                <><Check className="h-3.5 w-3.5 stroke-[3]" /> Guardar Políticas</>
+              )}
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -575,13 +633,21 @@ export default function ScheduleSettings() {
                 type="number"
                 min={0}
                 step={1}
-                value={commissions.reschedule_policy_hours}
-                onChange={(e) => setCommissions({ ...commissions, reschedule_policy_hours: parseInt(e.target.value) || 0 })}
+                placeholder="24"
+                value={commissions.reschedule_policy_hours === 0 ? '' : commissions.reschedule_policy_hours}
+                onChange={(e) => setCommissions({ ...commissions, reschedule_policy_hours: e.target.value })}
+                onBlur={() => {
+                  const num = parseInt(String(commissions.reschedule_policy_hours), 10);
+                  setCommissions(prev => ({
+                    ...prev,
+                    reschedule_policy_hours: isNaN(num) ? 24 : Math.max(0, num)
+                  }));
+                }}
                 className="max-w-[120px]"
                 disabled={updateProfileMutation.isLoading}
               />
               <span className="text-sm text-muted-foreground">
-                Los pacientes podrán reprogramar o cancelar de forma autónoma hasta <strong>{commissions.reschedule_policy_hours} horas</strong> antes de la sesión.
+                Los pacientes podrán reprogramar o cancelar de forma autónoma hasta <strong>{commissions.reschedule_policy_hours || 0} horas</strong> antes de la sesión.
               </span>
             </div>
           </div>
@@ -591,10 +657,10 @@ export default function ScheduleSettings() {
               type="button" 
               variant="zen" 
               disabled={updateProfileMutation.isLoading} 
-              className="gap-2" 
+              className="gap-2 font-bold px-6" 
               onClick={handleSaveHorarios}
             >
-              {updateProfileMutation.isLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</> : 'Guardar'}
+              {updateProfileMutation.isLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</> : <><Check className="h-4 w-4 stroke-[3]" /> Guardar Políticas</>}
             </Button>
           </div>
         </CardContent>

@@ -25,7 +25,7 @@ interface Patient {
 
 interface PatientAutocompleteProps {
     value: string;
-    onSelect: (patientId: string, patientName: string) => void;
+    onSelect: (patientId: string, patientName: string, patient?: Patient) => void;
     placeholder?: string;
     className?: string;
     refreshTrigger?: number;
@@ -85,7 +85,7 @@ const PatientAutocomplete = forwardRef<HTMLInputElement, PatientAutocompleteProp
 
     const handleSelect = (patient: Patient) => {
         setSelectedPatientName(patient.name);
-        onSelect(patient.id, patient.name);
+        onSelect(patient.id, patient.name, patient);
         setOpen(false);
         setIsModalOpen(false);
         setSearchQuery('');

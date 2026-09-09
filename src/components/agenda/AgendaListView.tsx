@@ -191,9 +191,17 @@ const AppointmentRow = ({
                     <span className="block text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                         Paciente
                     </span>
-                    <span className="block text-sm font-bold text-slate-800 dark:text-slate-100 truncate mt-0.5">
-                        {apt.patient_name}
-                    </span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
+                            {apt.patient_name}
+                        </span>
+                        {apt.modality === 'presencial' && apt.location && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 truncate max-w-[150px]" title={apt.location}>
+                                <MapPin className="h-2.5 w-2.5 shrink-0" />
+                                <span className="truncate">{apt.location.split(' - ')[0]}</span>
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 {/* Divider */}
@@ -270,6 +278,11 @@ const AppointmentRow = ({
                                     </>
                                 )}
                             </span>
+                            {apt.modality === 'presencial' && apt.location && (
+                                <p className="text-xs text-muted-foreground mt-1.5 font-medium bg-muted/40 p-2 rounded-lg border border-border/50 break-words">
+                                    📍 {apt.location}
+                                </p>
+                            )}
                         </div>
 
                         {/* Payment */}

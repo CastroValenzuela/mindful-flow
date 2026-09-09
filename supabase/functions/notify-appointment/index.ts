@@ -360,21 +360,9 @@ serve(async (req) => {
        const { data: { user }, error } = await supabase.auth.admin.getUserById(psychIdToUse);
        if (!error && user) {
           psychEmail = user.email || '';
-          psychName = user.user_metadata?.full_name || 'Psicólogo/a';
-          console.log(`[notify-appointment] Resolved via auth.admin: ${psychName} <${psychEmail}>`);
+          console.log(`[notify-appointment] Resolved auth user email: <${psychEmail}>`);
        } else {
-          console.warn(`[notify-appointment] auth.admin.getUserById failed: ${error?.message || 'user not found'}. Trying profiles table fallback...`);
-          // Fallback: try to get email from profiles table
-          const { data: profileFallback } = await supabase
-            .from('profiles')
-            .select('full_name, email')
-            .eq('id', psychologistId)
-            .single();
-          if (profileFallback) {
-            psychEmail = profileFallback.email || '';
-            psychName = profileFallback.full_name || 'Psicólogo/a';
-            console.log(`[notify-appointment] Resolved via profiles fallback: ${psychName} <${psychEmail}>`);
-          }
+          console.warn(`[notify-appointment] auth.admin.getUserById: ${error?.message || 'user not found'}`);
        }
     } else {
        const authHeader = req.headers.get('Authorization')
@@ -389,21 +377,28 @@ serve(async (req) => {
        
        psychIdToUse = user.id;
        psychEmail = user.email || '';
-       psychName = user.user_metadata?.full_name || 'Psicólogo/a';
-       console.log(`[notify-appointment] Resolved via auth header: ${psychName} <${psychEmail}>`);
+       console.log(`[notify-appointment] Resolved via auth header email: <${psychEmail}>`);
     }
+
+    // Canonical source of truth for Specialist details: profiles table
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('full_name, prefix, title_prefix, notification_settings, current_organization_id')
+      .eq('id', psychIdToUse)
+      .maybeSingle()
+
+    const rawPrefix = profileData?.prefix || profileData?.title_prefix || '';
+    const psychologistTitle = (rawPrefix && rawPrefix.toLowerCase() !== 'none') ? rawPrefix.trim() : '';
+    psychName = (profileData?.full_name || 'Psicólogo/a').trim();
+    const profPrefixClean = psychologistTitle ? `${psychologistTitle} ` : '';
+    const fullPsychologistDisplay = `${profPrefixClean}${psychName}`.trim();
+
+    console.log(`[notify-appointment] Canonical psychologist: ${fullPsychologistDisplay} <${psychEmail}>`);
 
     if (!psychEmail) {
       console.error(`[notify-appointment] FAILED: Could not resolve psychologist email for ID: ${psychIdToUse}`);
       throw new Error('Could not resolve psychologist email. Check that the user exists and has an email.');
     }
-
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('title_prefix, notification_settings, current_organization_id')
-      .eq('id', psychIdToUse)
-      .single()
-    const psychologistTitle = profileData?.title_prefix || ''
 
     let timezone = 'America/Mexico_City'
     if (profileData?.current_organization_id) {
@@ -562,45 +557,23 @@ serve(async (req) => {
       const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
       
       if (siteUrl && serviceKey) {
-        // Variables matched to Meta template:
-        // {{1}} = Patient Name
-        // {{2}} = Therapist/Clinic Name
-        // {{3}} = Location / Modality ("línea (Videollamada)" or "el consultorio")
-        // {{4}} = Date
-        // {{5}} = Time
-        const shortName = patName ? patName.split(' ')[0] : 'Paciente';
-        
-        // Dynamically build variable 3 (the location/modality that follows "en")
-        let locationVar = '';
-        if (modality === 'online') {
-          const platformName = meetingPlatform ? meetingPlatform.charAt(0).toUpperCase() + meetingPlatform.slice(1) : '';
-          locationVar = platformName ? `línea (Videollamada por ${platformName})` : 'línea (Videollamada)';
-        } else {
-          locationVar = location ? location : 'el consultorio';
-        }
+        // Official Meta approved template: confirmacion_asistencia (en_US)
+        // Variables:
+        // {{1}} = Nombre del paciente
+        // {{2}} = Especialista (con prefijo/título)
+        // {{3}} = Fecha
+        // {{4}} = Hora y zona horaria
+        const shortName = patName ? patName.trim().split(' ')[0] : 'Paciente';
+        const timeWithTz = `${patientStartStr} ${patientTzLabel}`.trim();
 
-        const isFirstTime = (!finalPatientId || sessionType === 'initial' || sessionType === 'primera_vez' || sessionType?.toLowerCase().includes('primera'));
-        const tplId = isFirstTime ? 'primera_cita' : 'confirmacion_cita';
-        console.log(`[notify-appointment] Selected WhatsApp template: ${tplId} (finalPatientId: ${finalPatientId}, sessionType: ${sessionType})`);
+        const variables = [
+          shortName,
+          fullPsychologistDisplay,
+          patientDateStr,
+          timeWithTz
+        ];
 
-        let variables: string[] = [];
-        if (tplId === 'primera_cita') {
-          const modalityClean = modality === 'online' ? 'En línea (Videollamada)' : 'Presencial';
-          variables = [
-            shortName, 
-            `${patientDateStr} a las ${patientStartStr} ${patientTzLabel}`, 
-            psychName, 
-            modalityClean 
-          ];
-        } else {
-          variables = [
-            shortName, 
-            psychName, 
-            locationVar, 
-            patientDateStr, 
-            `${patientStartStr} ${patientTzLabel}`
-          ];
-        }
+        console.log(`[notify-appointment] Sending WhatsApp template confirmacion_asistencia for ${shortName} with specialist ${fullPsychologistDisplay} on ${patientDateStr} at ${timeWithTz}`);
         
         try {
           const waRes = await fetch(`${siteUrl}/functions/v1/meta-whatsapp`, {
@@ -614,7 +587,7 @@ serve(async (req) => {
               phone: patPhone,
               organization_id: profileData.current_organization_id,
               patient_id: finalPatientId || undefined,
-              template_id: tplId,
+              template_id: 'confirmacion_asistencia',
               template_variables: variables
             })
           });

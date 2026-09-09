@@ -18,6 +18,8 @@ export interface ProfileData {
   experience_years: number;
   social_links: Record<string, string>;
   reschedule_policy_hours: number;
+  default_meeting_platform?: string | null;
+  custom_meeting_link?: string | null;
   google_refresh_token?: string | null;
   microsoft_refresh_token?: string | null;
   zoom_refresh_token?: string | null;
@@ -34,7 +36,7 @@ export function useProfileQuery(userId: string | undefined) {
       if (!userId) return null;
       const { data, error } = await supabase
         .from('profiles')
-        .select('prefix, full_name, avatar_url, cedulas, cursos, institucion_formadora, telefono_profesional, porcentaje_consultorio, stripe_fee_percent, horario_atencion, notification_settings, slug, is_public, google_refresh_token, microsoft_refresh_token, zoom_refresh_token, stripe_account_id, stripe_account_status, signature_data, logo_data, bio, experience_years, social_links, reschedule_policy_hours')
+        .select('prefix, full_name, avatar_url, cedulas, cursos, institucion_formadora, telefono_profesional, porcentaje_consultorio, stripe_fee_percent, horario_atencion, notification_settings, slug, is_public, google_refresh_token, microsoft_refresh_token, zoom_refresh_token, stripe_account_id, stripe_account_status, signature_data, logo_data, bio, experience_years, social_links, reschedule_policy_hours, default_meeting_platform, custom_meeting_link')
         .eq('id', userId)
         .single();
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { ShieldAlert, Clock, LogOut, RefreshCw } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, Clock, LogOut, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -95,6 +95,12 @@ const InactivityModal = ({ open, countdownSeconds, onContinue, onLogout }: Inact
                                     {remaining}s
                                 </span>
                                 <span className="text-sm text-muted-foreground">restantes</span>
+                            </div>
+
+                            {/* Resguardo Clínico */}
+                            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground bg-muted/50 py-2 px-3 rounded-lg border border-border/60">
+                                <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                                <span>Tus notas y borradores en curso se respaldan automáticamente.</span>
                             </div>
 
                             {/* Botones */}

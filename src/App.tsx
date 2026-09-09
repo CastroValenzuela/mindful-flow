@@ -66,6 +66,7 @@ const Onboarding = lazyWithRetry(() => import("./pages/Onboarding"));
 const SubscriptionSuccess = lazyWithRetry(() => import("./pages/SubscriptionSuccess"));
 const Notifications = lazyWithRetry(() => import("./pages/Notifications"));
 const LeaveReview = lazyWithRetry(() => import("./pages/LeaveReview"));
+const ConfirmAppointment = lazyWithRetry(() => import("./pages/ConfirmAppointment"));
 
 
 import { RefreshCw } from "lucide-react";
@@ -424,6 +425,8 @@ const AppContent = () => {
             <Route path="/portal/login" element={<PortalLogin />} />
             <Route path="/portal" element={<Portal />} />
             <Route path="/join/:id" element={<JoinSession />} />
+            <Route path="/confirmar/:token" element={<ConfirmAppointment />} />
+            <Route path="/c/:token" element={<ConfirmAppointment />} />
 
             {/* Public Info Routes */}
             <Route path="/politicas" element={<PrivacyPolicy />} />

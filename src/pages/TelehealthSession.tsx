@@ -3,9 +3,10 @@ import FeatureGate from '@/components/subscription/FeatureGate';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
-import { LogOut, Save, Video, User, Brain, AlertCircle, Sparkles, Mic, Loader2, Square, FileText } from 'lucide-react';
+import { LogOut, Save, Video, User, Brain, AlertCircle, Sparkles, Mic, Loader2, Square, FileText, ShieldCheck, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import MiniEditor from '@/components/ui/MiniEditor';
+import { useNoteDraft } from '@/hooks/useNoteDraft';
 
 export default function TelehealthSession() {
   const { id } = useParams();
@@ -148,6 +149,41 @@ export default function TelehealthSession() {
     if (id) fetchData();
   }, [id]);
 
+  // Keep-alive clínico: mientras la sesión esté activa, evitar que el temporizador de inactividad cierre sesión
+  useEffect(() => {
+    if (callEnded || !appointment) return;
+
+    window.dispatchEvent(new CustomEvent('mindful-keepalive'));
+    const keepAliveInterval = setInterval(() => {
+      window.dispatchEvent(new CustomEvent('mindful-keepalive'));
+    }, 60000); // 1 pulso por minuto
+
+    return () => clearInterval(keepAliveInterval);
+  }, [callEnded, appointment]);
+
+  // Persistencia local de reporte y transcripción en teleconsulta
+  const draftKey = id ? `mindful_telehealth_draft_${id}` : '';
+  const isDirty = Boolean((generatedReport && generatedReport.trim()) || (transcript && transcript.trim()));
+
+  const {
+    hasDraft,
+    draftSavedAt,
+    autosaveStatus,
+    restoreDraft,
+    discardDraft,
+    clearDraft,
+  } = useNoteDraft<{ generatedReport: string; transcript: string }>({
+    draftKey,
+    data: { generatedReport, transcript },
+    isDirty,
+    debounceMs: 1000,
+    onRestore: (restored) => {
+      if (restored.generatedReport) setGeneratedReport(restored.generatedReport);
+      if (restored.transcript) setTranscript(restored.transcript);
+      toast.success('Borrador de teleconsulta restaurado con éxito');
+    },
+  });
+
   const handleSaveNote = async () => {
     if (!appointment) return;
     setIsSaving(true);
@@ -168,6 +204,7 @@ export default function TelehealthSession() {
       const { error } = await supabase.from('session_notes').insert([payload]);
       if (error) throw error;
       
+      clearDraft();
       toast.success('Nota de sesión guardada correctamente');
     } catch (err: any) {
       toast.error('Error al guardar la nota: ' + err.message);
@@ -306,6 +343,25 @@ export default function TelehealthSession() {
           </Button>
         </div>
 
+        {/* Banner de Borrador previo */}
+        {hasDraft && (
+          <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 flex items-center justify-between gap-3 text-amber-900 animate-fade-in">
+            <div className="flex items-center gap-2 text-xs">
+              <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Se encontró un reporte previo no guardado de esta teleconsulta.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={discardDraft} className="h-7 text-xs text-amber-800 hover:bg-amber-100">
+                Descartar
+              </Button>
+              <Button size="sm" onClick={() => restoreDraft()} className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1">
+                <RefreshCw className="w-3 h-3" />
+                Restaurar
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Notes Scrollable Area */}
         <div className="flex-1 overflow-y-auto p-6 scrollbar-zen">
           
@@ -440,8 +496,18 @@ export default function TelehealthSession() {
 
         {/* Footer Actions */}
         <div className="bg-white px-6 py-4 border-t flex justify-between items-center z-10 shrink-0">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <AlertCircle className="w-4 h-4" /> La firma y cédula se adjuntarán automáticamente.
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span className="flex items-center gap-1">
+              <AlertCircle className="w-4 h-4 text-slate-400" /> La firma y cédula se adjuntarán automáticamente.
+            </span>
+            {autosaveStatus === 'saving' && (
+              <span className="text-amber-600 font-medium animate-pulse">Guardando borrador...</span>
+            )}
+            {autosaveStatus === 'saved' && (
+              <span className="text-emerald-700 font-medium flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Borrador respaldado
+              </span>
+            )}
           </div>
           <Button 
             variant="zen" 

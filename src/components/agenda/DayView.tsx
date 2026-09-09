@@ -136,6 +136,14 @@ const DayView = ({ currentDate, appointments, getStatusColor, getChipStyle, time
                                             )}
                                         </div>
 
+                                        {/* Ubicación Presencial o Plataforma Online */}
+                                        {apt.modality === 'presencial' && apt.location && (
+                                            <div className="flex items-center gap-1 text-[11px] text-amber-800 dark:text-amber-300 font-semibold truncate bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20" title={apt.location}>
+                                                <MapPin className="h-3 w-3 shrink-0 text-amber-600" />
+                                                <span className="truncate">{apt.location.split(' - ')[0]}</span>
+                                            </div>
+                                        )}
+
                                         {/* Row 2: Time, Recurrence & Payment */}
                                         <div className="flex items-center justify-between pt-1 border-t border-current/5">
                                             <div className="flex items-center gap-3">

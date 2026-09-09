@@ -96,8 +96,8 @@ interface LayoutProps {
   onPatientTabChange?: (tab: string) => void;
 }
 
-const INACTIVITY_SECONDS = 300;
-const COUNTDOWN_SECONDS = 30;
+const INACTIVITY_SECONDS = 900; // 15 minutos (estándar clínico HIPAA)
+const COUNTDOWN_SECONDS = 60; // 1 minuto de advertencia previa
 const COLLAPSED_KEY = 'sidebar_collapsed';
 
 const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange }: LayoutProps) => {
@@ -196,9 +196,11 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
 
   const handleWarning = useCallback(() => setShowInactivityModal(true), []);
   const handleTimeout = useCallback(async () => {
+    // Vaciado de emergencia: obligar a formularios en pantalla a volcar su estado a localStorage
+    window.dispatchEvent(new CustomEvent('mindful-emergency-save'));
     setShowInactivityModal(false);
     await signOut('timeout');
-    toast.error('Sesión cerrada por inactividad', { duration: 5000 });
+    toast.error('Sesión cerrada por inactividad. Tus notas han sido respaldadas automáticamente.', { duration: 6000 });
   }, [signOut]);
 
   const { extendSession } = useInactivityTimer({

@@ -243,7 +243,7 @@ export default function ProfileSettings() {
           signature_data: profile.signature_data,
           logo_data: profile.logo_data,
           bio: profile.bio || null,
-          experience_years: profile.experience_years || 0,
+          experience_years: parseInt(String(profile.experience_years), 10) || 0,
           social_links: profile.social_links || {},
         }
       });
@@ -372,9 +372,16 @@ export default function ProfileSettings() {
                   type="number"
                   min={0}
                   max={60}
-                  value={profile.experience_years}
-                  onChange={(e) => setProfile({ ...profile, experience_years: parseInt(e.target.value) || 0 })}
-                  placeholder="Ej: 10"
+                  value={profile.experience_years === 0 ? '' : profile.experience_years}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setProfile({ ...profile, experience_years: val === '' ? ('' as any) : parseInt(val, 10) || ('' as any) });
+                  }}
+                  onBlur={() => {
+                    const num = parseInt(String(profile.experience_years), 10);
+                    setProfile(prev => ({ ...prev, experience_years: isNaN(num) ? 0 : Math.min(60, Math.max(0, num)) }));
+                  }}
+                  placeholder="0"
                   disabled={updateProfileMutation.isLoading}
                 />
               </div>

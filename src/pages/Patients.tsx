@@ -1965,7 +1965,7 @@ const Patients = () => {
                                         description: nextApt ? `Próxima: ${format(parseISO(nextApt), "d MMM, HH:mm", { locale: es })}` : 'Recordatorio corto de cita',
                                         icon: <Calendar className="h-5 w-5" />,
                                         color: 'primary',
-                                        message: `¡Hola, ${name}! ✨ Te esperamos el ${formattedDate} a las ${formattedTime} para nuestra cita. Estamos listos para recibirte. Si necesitas cambiar algo, por favor avísanos. ¡Nos vemos pronto!`,
+                                        message: `¡Hola, ${name}! ✨ Te recordamos tu cita el ${formattedDate} a las ${formattedTime}. Estamos listos para recibirte.\n\n👉 Responde *"Sí, asistiré"* para confirmar tu cita en un clic, o *"No podré asistir"* si necesitas reagendar. ¡Nos vemos pronto!`,
                                         disabled: false,
                                       },
                                       {
@@ -1979,7 +1979,7 @@ const Patients = () => {
                                           const mapLink = nextLocation 
                                             ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(nextLocation)}`
                                             : '[Link de Google Maps]';
-                                          return `¡Hola, ${name}! ✨ Te esperamos el ${formattedDate} a las ${formattedTime} en ${loc}. Puedes guiarte con este mapa: ${mapLink}. Si necesitas algo, aquí estamos. ¡Qué ganas de verte!`;
+                                          return `¡Hola, ${name}! ✨ Te recordamos tu cita presencial el ${formattedDate} a las ${formattedTime} en ${loc}.\nMapa: ${mapLink}\n\n👉 Responde *"Sí, asistiré"* para confirmar tu cita en un clic, o *"No podré asistir"* si necesitas reagendar. ¡Qué ganas de verte!`;
                                         })(),
                                         disabled: false,
                                       },

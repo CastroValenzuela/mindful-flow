@@ -112,7 +112,7 @@ const MonthView = ({ currentDate, appointments, selectedDate, onSelectDate, onDa
                                             {apt.modality === 'online' ? (
                                                 <Video className="h-2.5 w-2.5 text-slate-500" title="En línea" />
                                             ) : (
-                                                <MapPin className="h-2.5 w-2.5 text-amber-600" title="Presencial" />
+                                                <MapPin className="h-2.5 w-2.5 text-amber-600" title={apt.location ? `Presencial: ${apt.location}` : "Presencial"} />
                                             )}
                                         </div>
 

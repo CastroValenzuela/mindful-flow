@@ -15,9 +15,72 @@ function normalizeMexicanPhone(phoneStr: string): string {
 }
 
 // Helper to determine reply action based on message body
+function isConfirmationMessage(text: string): boolean {
+  if (!text) return false;
+  const cleaned = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const exacts = ["si", "yes", "confirmar", "confirmo", "1", "ok", "listo", "de acuerdo", "perfecto", "asistire", "voy"];
+  if (exacts.includes(cleaned)) return true;
+
+  if (
+    cleaned.includes("si asistire") ||
+    cleaned.includes("asistire") ||
+    cleaned.includes("si voy") ||
+    cleaned.includes("ahi estare") ||
+    cleaned.includes("confirmo") ||
+    cleaned.includes("confirmar cita") ||
+    cleaned.includes("confirmo mi cita") ||
+    cleaned.includes("confirmo asistencia") ||
+    cleaned.includes("confirmar asistencia") ||
+    cleaned.includes("si confirmo") ||
+    cleaned.includes("claro que si") ||
+    cleaned.includes("por supuesto") ||
+    cleaned.includes("si por favor") ||
+    cleaned.includes("cuenten conmigo") ||
+    cleaned.startsWith("si ") ||
+    cleaned.endsWith(" si")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isCancellationMessage(text: string): boolean {
+  if (!text) return false;
+  const cleaned = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const exacts = ["no", "cancelar", "cancelo", "2", "reagendar"];
+  if (exacts.includes(cleaned)) return true;
+
+  if (
+    cleaned.includes("no podre") ||
+    cleaned.includes("no voy a poder") ||
+    cleaned.includes("no asistire") ||
+    cleaned.includes("cancelar cita") ||
+    cleaned.includes("cancelo mi cita") ||
+    cleaned.includes("no puedo") ||
+    cleaned.includes("no voy a asistir") ||
+    cleaned.includes("deseo cancelar") ||
+    cleaned.includes("no voy a ir")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function getReplyAction(body: string, hasAppointment: boolean, hoursDiff?: number, reschedulePolicyHours = 24) {
-  const bodyLower = body.toLowerCase().trim();
-  
   // 1. Link code detection
   const match = body.match(/C[oó]digo:\s*([A-Z0-9-]+)/i);
   if (match) {
@@ -26,8 +89,8 @@ function getReplyAction(body: string, hasAppointment: boolean, hoursDiff?: numbe
 
   // 2. Appointment confirmation/cancellation
   if (hasAppointment) {
-    const isConfirm = ["sí", "si", "yes", "confirmar", "1"].includes(bodyLower);
-    const isCancel = ["no", "cancelar", "reagendar", "2"].includes(bodyLower);
+    const isConfirm = isConfirmationMessage(body);
+    const isCancel = isCancellationMessage(body);
 
     if (isConfirm) {
       return { type: 'confirm_appointment' };
@@ -51,11 +114,9 @@ describe('WhatsApp Webhook Core Logics', () => {
     });
 
     it('should strip Mexican carrier "1" prefix added on outbound Meta routing', () => {
-      // Outbound format: 52 1 55 5123 4567 (13 digits starting with 521)
-      // Normal format: 52 55 5123 4567 (12 digits)
       expect(normalizeMexicanPhone('5215551234567')).toBe('525551234567');
-      expect(normalizeMexicanPhone('525551234567')).toBe('525551234567'); // Unaffected if no extra '1'
-      expect(normalizeMexicanPhone('521555123456')).toBe('521555123456'); // Unaffected if not 13 digits
+      expect(normalizeMexicanPhone('525551234567')).toBe('525551234567');
+      expect(normalizeMexicanPhone('521555123456')).toBe('521555123456');
     });
   });
 
@@ -65,22 +126,36 @@ describe('WhatsApp Webhook Core Logics', () => {
       expect(result).toEqual({ type: 'link', code: 'SAU-1234' });
     });
 
-    it('should confirm appointment when user replies yes', () => {
-      const result = getReplyAction('Sí', true);
-      expect(result).toEqual({ type: 'confirm_appointment' });
+    it('should confirm appointment when user replies with affirmative variations', () => {
+      // Direct word
+      expect(getReplyAction('Sí', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('si', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('1', true)).toEqual({ type: 'confirm_appointment' });
 
-      const resultNumeric = getReplyAction('1', true);
-      expect(resultNumeric).toEqual({ type: 'confirm_appointment' });
+      // WhatsApp Button exact text
+      expect(getReplyAction('Sí, asistiré', true)).toEqual({ type: 'confirm_appointment' });
+      // Case and accent variations
+      expect(getReplyAction('si asistire', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('Sí asistiré', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('si, asistiré', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('asistiré', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('asistire', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('confirmo mi asistencia', true)).toEqual({ type: 'confirm_appointment' });
+      expect(getReplyAction('Ahi estaré, gracias!', true)).toEqual({ type: 'confirm_appointment' });
     });
 
     it('should cancel appointment when user replies no and is within policy window', () => {
-      const result = getReplyAction('No', true, 36, 24); // 36 hours before start, policy is 24h
-      expect(result).toEqual({ type: 'cancel_appointment' });
+      expect(getReplyAction('No', true, 36, 24)).toEqual({ type: 'cancel_appointment' });
+      expect(getReplyAction('No podré asistir', true, 36, 24)).toEqual({ type: 'cancel_appointment' });
+      expect(getReplyAction('no podre asistir', true, 36, 24)).toEqual({ type: 'cancel_appointment' });
+      expect(getReplyAction('cancelar', true, 36, 24)).toEqual({ type: 'cancel_appointment' });
+      expect(getReplyAction('2', true, 36, 24)).toEqual({ type: 'cancel_appointment' });
     });
 
     it('should reject cancellation when user replies no but violates policy window', () => {
-      const result = getReplyAction('No', true, 12, 24); // 12 hours before start, policy is 24h
-      expect(result).toEqual({ type: 'cancel_blocked_by_policy', policyHours: 24 });
+      expect(getReplyAction('No', true, 12, 24)).toEqual({ type: 'cancel_blocked_by_policy', policyHours: 24 });
+      expect(getReplyAction('No podré asistir', true, 12, 24)).toEqual({ type: 'cancel_blocked_by_policy', policyHours: 24 });
+      expect(getReplyAction('no podre asistir', true, 12, 24)).toEqual({ type: 'cancel_blocked_by_policy', policyHours: 24 });
     });
 
     it('should fallback to general auto-reply for custom messages', () => {

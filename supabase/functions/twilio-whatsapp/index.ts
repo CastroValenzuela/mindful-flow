@@ -43,6 +43,73 @@ function getTimezoneFriendlyLabel(tz: string) {
   }
 }
 
+// Helper para detectar confirmación de cita en lenguaje natural y botones WhatsApp
+function isConfirmationMessage(text: string): boolean {
+  if (!text) return false;
+  const cleaned = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remover acentos (sí -> si, asistiré -> asistire)
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡!]/g, " ") // remover puntuación
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const exacts = ["si", "yes", "confirmar", "confirmo", "1", "ok", "listo", "de acuerdo", "perfecto", "asistire", "voy"];
+  if (exacts.includes(cleaned)) return true;
+
+  if (
+    cleaned.includes("si asistire") ||
+    cleaned.includes("asistire") ||
+    cleaned.includes("si voy") ||
+    cleaned.includes("ahi estare") ||
+    cleaned.includes("confirmo") ||
+    cleaned.includes("confirmar cita") ||
+    cleaned.includes("confirmo mi cita") ||
+    cleaned.includes("confirmo asistencia") ||
+    cleaned.includes("confirmar asistencia") ||
+    cleaned.includes("si confirmo") ||
+    cleaned.includes("claro que si") ||
+    cleaned.includes("por supuesto") ||
+    cleaned.includes("si por favor") ||
+    cleaned.includes("cuenten conmigo") ||
+    cleaned.startsWith("si ") ||
+    cleaned.endsWith(" si")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+// Helper para detectar cancelación o imposibilidad de asistir
+function isCancellationMessage(text: string): boolean {
+  if (!text) return false;
+  const cleaned = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const exacts = ["no", "cancelar", "cancelo", "2", "reagendar"];
+  if (exacts.includes(cleaned)) return true;
+
+  if (
+    cleaned.includes("no podre") ||
+    cleaned.includes("no voy a poder") ||
+    cleaned.includes("no asistire") ||
+    cleaned.includes("cancelar cita") ||
+    cleaned.includes("cancelo mi cita") ||
+    cleaned.includes("no puedo") ||
+    cleaned.includes("no voy a asistir") ||
+    cleaned.includes("deseo cancelar") ||
+    cleaned.includes("no voy a ir")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -159,51 +226,98 @@ serve(async (req) => {
         handled = true;
       }
 
-      // 1.2. Si hay paciente y organización, buscar cita próxima en las próximas 48 horas
+      // 1.2. Si hay paciente y organización, procesar confirmación o cancelación de cita
       if (patientId && organizationId) {
-        const { data: appointment, error: aptError } = await supabaseClient
-          .from("appointments")
-          .select("id, status, start_time, type, management_token, reschedule_policy_hours")
-          .eq("patient_id", patientId)
-          .in("status", ["scheduled", "pending"])
-          .gt("start_time", new Date().toISOString())
-          .order("start_time", { ascending: true })
-          .limit(1)
-          .maybeSingle();
+        const isConfirm = isConfirmationMessage(body);
+        const isCancel = isCancellationMessage(body);
 
-        if (appointment && !aptError) {
-          const bodyLower = body.toLowerCase();
-          const isConfirm = ["sí", "si", "yes", "confirmar", "confirm", "1", "bueno", "ok", "de acuerdo"].includes(bodyLower);
-          const isCancel = ["no", "cancelar", "cancel", "reagendar", "2"].includes(bodyLower);
+        if (isConfirm || isCancel) {
+          const searchFrom = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+          const { data: appointment, error: aptError } = await supabaseClient
+            .from("appointments")
+            .select("id, status, start_time, type, user_id, organization_id, management_token, reschedule_policy_hours, notes")
+            .eq("patient_id", patientId)
+            .in("status", ["scheduled", "pending"])
+            .gte("start_time", searchFrom)
+            .order("start_time", { ascending: true })
+            .limit(1)
+            .maybeSingle();
 
-          if (isConfirm) {
-            // Confirmar Cita
-            await supabaseClient
-              .from("appointments")
-              .update({ status: "confirmed" })
-              .eq("id", appointment.id);
+          const patientFirstName = patient?.name ? patient.name.split(' ')[0] : 'Paciente';
 
-            responseText = `¡Muchas gracias, ${patient.name.split(' ')[0]}! Tu cita para ${appointment.type} ha sido confirmada con éxito. Te esperamos. 😊`;
-            handled = true;
-          } else if (isCancel) {
-            // Cancelar Cita respetando políticas
-            const policyHours = appointment.reschedule_policy_hours ?? 24;
-            const hoursDiff = (new Date(appointment.start_time).getTime() - new Date().getTime()) / (1000 * 60 * 60);
+          if (appointment && !aptError) {
+            const aptDate = new Date(appointment.start_time);
+            const dateStr = aptDate.toLocaleDateString("es-MX", { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Mexico_City' });
+            const timeStr = aptDate.toLocaleTimeString("es-MX", { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
 
-            if (hoursDiff < policyHours) {
-              responseText = `Hola ${patient.name.split(' ')[0]}. La política de cancelación requiere al menos ${policyHours} horas de anticipación. Por favor comunícate directamente con tu terapeuta o ingresa a tu Portal para ver las opciones: ${portalUrl}`;
-            } else {
+            if (isConfirm) {
+              // Confirmar Cita en 1 Clic
               await supabaseClient
                 .from("appointments")
                 .update({ 
-                  status: "cancelled", 
-                  notes: `\n-- Cancelada por el paciente vía WhatsApp el ${new Date().toLocaleString()}` 
+                  status: "confirmed",
+                  notes: `${appointment.notes || ''}\n[Confirmada por el paciente vía WhatsApp el ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}]`
                 })
                 .eq("id", appointment.id);
 
-              responseText = `Entendido. Tu cita ha sido cancelada. Si deseas reagendar, puedes seleccionar un nuevo horario desde tu Portal de Pacientes aquí: ${portalUrl}`;
+              // Registrar log de actividad para el especialista
+              await supabaseClient.from("activity_logs").insert({
+                profile_id: appointment.user_id,
+                organization_id: appointment.organization_id,
+                type: 'appointment_confirmed',
+                title: 'Cita Confirmada por WhatsApp',
+                description: `${patientFirstName} ha confirmado su asistencia para la cita del ${dateStr} a las ${timeStr}.`
+              });
+
+              responseText = `¡Muchas gracias, ${patientFirstName}! ✨ Tu cita para el ${dateStr} a las ${timeStr} ha sido confirmada con éxito. Te esperamos. 😊`;
+              handled = true;
+            } else if (isCancel) {
+              // Cancelar Cita respetando políticas
+              const policyHours = appointment.reschedule_policy_hours ?? 24;
+              const hoursDiff = (aptDate.getTime() - Date.now()) / (1000 * 60 * 60);
+
+              if (hoursDiff < policyHours) {
+                responseText = `Hola ${patientFirstName}. La política de cancelación requiere al menos ${policyHours} horas de anticipación. Por favor comunícate directamente con tu terapeuta o ingresa a tu Portal para ver las opciones: ${portalUrl}`;
+              } else {
+                await supabaseClient
+                  .from("appointments")
+                  .update({ 
+                    status: "cancelled", 
+                    notes: `${appointment.notes || ''}\n[Cancelada por el paciente vía WhatsApp el ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}]` 
+                  })
+                  .eq("id", appointment.id);
+
+                await supabaseClient.from("activity_logs").insert({
+                  profile_id: appointment.user_id,
+                  organization_id: appointment.organization_id,
+                  type: 'cancelation',
+                  title: 'Cita Cancelada por WhatsApp',
+                  description: `${patientFirstName} canceló su cita del ${dateStr} a las ${timeStr} (dentro del límite de ${policyHours}h). El horario ha quedado liberado.`
+                });
+
+                responseText = `Entendido, ${patientFirstName}. Tu cita ha sido cancelada sin penalización. Si deseas reagendar, puedes seleccionar un nuevo horario desde tu Portal de Pacientes aquí: ${portalUrl}`;
+              }
+              handled = true;
             }
-            handled = true;
+          } else {
+            // Verificar si la cita ya estaba previamente confirmada
+            const { data: alreadyConfirmedApt } = await supabaseClient
+              .from("appointments")
+              .select("id, start_time")
+              .eq("patient_id", patientId)
+              .eq("status", "confirmed")
+              .gte("start_time", searchFrom)
+              .order("start_time", { ascending: true })
+              .limit(1)
+              .maybeSingle();
+
+            if (alreadyConfirmedApt && isConfirm) {
+              const aptDate = new Date(alreadyConfirmedApt.start_time);
+              const dateStr = aptDate.toLocaleDateString("es-MX", { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Mexico_City' });
+              const timeStr = aptDate.toLocaleTimeString("es-MX", { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
+              responseText = `¡Hola, ${patientFirstName}! Tu cita para el ${dateStr} a las ${timeStr} ya se encuentra confirmada. ¡Te esperamos! ✨`;
+              handled = true;
+            }
           }
         }
       }

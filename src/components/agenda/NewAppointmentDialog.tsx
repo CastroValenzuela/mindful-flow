@@ -22,10 +22,11 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, parseISO, startOfDay, endOfDay, isBefore } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { CalendarIcon, Clock, Video, Loader2, XCircle, MapPin, Repeat, CreditCard, Sparkles, Copy, Check } from 'lucide-react';
+import { CalendarIcon, Clock, Video, Loader2, XCircle, MapPin, Repeat, CreditCard, Sparkles, Copy, Check, Building2, Plus, Info, ExternalLink, Star, CheckCircle2, Home, Trash2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { useClinicLocations, ClinicLocation } from '@/hooks/useClinicLocations';
 
 const appointmentSchema = z.object({
     patientId: z.string().optional(),
@@ -149,15 +150,30 @@ const NewAppointmentDialog = ({
         dias_no_laborables: [],
     });
 
+    // Sedes y consultorios presenciales
+    const { locations, defaultLocation, saveLocation } = useClinicLocations();
+    const [isAddingLocation, setIsAddingLocation] = useState(false);
+    const [newLocName, setNewLocName] = useState('');
+    const [newLocAddress, setNewLocAddress] = useState('');
+    const [newLocInstructions, setNewLocInstructions] = useState('');
+    const [saveForFuture, setSaveForFuture] = useState(true);
+    const [specialistDefaultPlatform, setSpecialistDefaultPlatform] = useState<string>('saudade');
+
     useEffect(() => {
         if (!user) return;
         supabase
             .from('profiles')
-            .select('horario_atencion, full_name, porcentaje_consultorio, reschedule_policy_hours')
+            .select('horario_atencion, full_name, prefix, title_prefix, porcentaje_consultorio, reschedule_policy_hours, default_meeting_platform, google_refresh_token')
             .eq('id', user.id)
             .single()
             .then(({ data }) => {
-                if (data?.full_name) setSpecialistName(data.full_name);
+                if (data?.full_name) {
+                    const rawPref = (data as any)?.prefix || (data as any)?.title_prefix || '';
+                    const pref = (rawPref && rawPref.toLowerCase() !== 'none') ? `${rawPref.trim()} ` : '';
+                    setSpecialistName(`${pref}${data.full_name}`);
+                }
+                const defPlat = (data as any)?.default_meeting_platform || ((data as any)?.google_refresh_token ? 'meet' : 'saudade');
+                setSpecialistDefaultPlatform(defPlat);
                 if (data?.porcentaje_consultorio !== undefined && data?.porcentaje_consultorio !== null) {
                     setPorcentajeGlobal(data.porcentaje_consultorio);
                 }
@@ -232,6 +248,8 @@ const NewAppointmentDialog = ({
     const [formData, setFormData] = useState({
         patientId: '',
         patientName: '',
+        patientEmail: '',
+        patientPhone: '',
         type: '',
         status: 'scheduled',
         color: 'violet',
@@ -243,7 +261,7 @@ const NewAppointmentDialog = ({
         modality: 'presencial' as 'presencial' | 'online',
         location: '',
         isRecurring: false,
-        recurrenceWeeks: 8,
+        recurrenceWeeks: 8 as number | string,
         editSeries: false,
         patientAge: '' as string | number,
         reasonForConsultation: '',
@@ -439,27 +457,44 @@ const NewAppointmentDialog = ({
     }, [editingAppointment, open]);
 
     const resetForm = () => {
+        const defaultLocStr = defaultLocation
+            ? `${defaultLocation.name}${defaultLocation.address ? ` - ${defaultLocation.address}` : ''}${defaultLocation.instructions ? ` [Ref: ${defaultLocation.instructions}]` : ''}`
+            : '';
         setFormData({
             patientId: '',
             patientName: '',
+            patientEmail: '',
+            patientPhone: '',
             type: '',
             status: 'scheduled',
             color: 'violet',
             startTime: '09:00',
             fee: '',
             meetingLink: '',
-            meetingPlatform: '',
+            meetingPlatform: specialistDefaultPlatform || 'saudade',
             notes: '',
             modality: 'presencial',
-            location: '',
+            location: defaultLocStr,
             isRecurring: false,
-            recurrenceWeeks: 8,
+            recurrenceWeeks: 8 as number | string,
             editSeries: false,
             patientAge: '',
             reasonForConsultation: '',
             serviceId: '',
         });
+        setIsAddingLocation(false);
     };
+
+    // Preseleccionar consultorio habitual al abrir diálogo si no hay ubicación asignada
+    useEffect(() => {
+        if (open && !editingAppointment && defaultLocation && !formData.location) {
+            const locStr = `${defaultLocation.name}${defaultLocation.address ? ` - ${defaultLocation.address}` : ''}${defaultLocation.instructions ? ` [Ref: ${defaultLocation.instructions}]` : ''}`;
+            setFormData(prev => ({
+                ...prev,
+                location: locStr,
+            }));
+        }
+    }, [open, editingAppointment, defaultLocation]);
 
     const handleServiceChange = (serviceId: string) => {
         const service = services.find(s => s.id === serviceId);
@@ -875,8 +910,9 @@ const NewAppointmentDialog = ({
                     // Bulk creation
                     const sessions = [];
                     const recurrenceId = payload.recurrence_id;
+                    const numWeeks = Math.max(2, Math.min(52, parseInt(String(formData.recurrenceWeeks), 10) || 2));
 
-                    for (let i = 0; i < formData.recurrenceWeeks; i++) {
+                    for (let i = 0; i < numWeeks; i++) {
                         const currentStart = new Date(startDateTime.getTime() + i * 7 * 24 * 60 * 60 * 1000);
                         const currentEnd = new Date(endDateTime.getTime() + i * 7 * 24 * 60 * 60 * 1000);
                         const sessionAptId = crypto.randomUUID();
@@ -899,7 +935,7 @@ const NewAppointmentDialog = ({
 
                     const { error } = await supabase.from('appointments').insert(sessions);
                     if (error) throw error;
-                    toast.success(`${formData.recurrenceWeeks} citas agendadas correctamente`);
+                    toast.success(`${numWeeks} citas agendadas correctamente`);
                 } else {
                     const { error } = await supabase.from('appointments').insert([{
                         ...payload,
@@ -942,6 +978,8 @@ const NewAppointmentDialog = ({
                         psychologistId: sessionUser?.id,
                         patientId: formData.patientId || null,
                         patientName: formData.patientName,
+                        patientEmail: formData.patientEmail || undefined,
+                        patientPhone: formData.patientPhone || undefined,
                         startTime: startDateTime.toISOString(),
                         endTime: endDateTime.toISOString(),
                         sessionType: formData.type || 'individual',
@@ -1086,12 +1124,14 @@ const NewAppointmentDialog = ({
                             <Label htmlFor="patient">Paciente *</Label>
                             <PatientAutocomplete
                                 value={formData.patientId}
-                                onSelect={(patientId, patientName) => {
+                                onSelect={(patientId, patientName, patientObj) => {
                                     if (!isReadOnly) {
                                         setFormData(prev => ({
                                             ...prev,
                                             patientId,
                                             patientName,
+                                            patientEmail: patientObj?.email || prev.patientEmail,
+                                            patientPhone: patientObj?.phone || prev.patientPhone,
                                             ...(isEditing ? {} : { reasonForConsultation: '', notes: '' })
                                         }));
                                     }
@@ -1389,7 +1429,10 @@ const NewAppointmentDialog = ({
                                     if (isReadOnly) return;
                                     const updates: any = { modality: value };
                                     if (value === 'online' && !formData.meetingPlatform) {
-                                        updates.meetingPlatform = 'saudade';
+                                        updates.meetingPlatform = specialistDefaultPlatform || 'saudade';
+                                    }
+                                    if (value === 'presencial' && !formData.location && defaultLocation) {
+                                        updates.location = `${defaultLocation.name}${defaultLocation.address ? ` - ${defaultLocation.address}` : ''}${defaultLocation.instructions ? ` [Ref: ${defaultLocation.instructions}]` : ''}`;
                                     }
                                     setFormData({ ...formData, ...updates });
                                 }}
@@ -1432,6 +1475,7 @@ const NewAppointmentDialog = ({
                                             <SelectItem value="saudade">Videollamada Saudade (Consultorio Virtual)</SelectItem>
                                             <SelectItem value="meet">Google Meet</SelectItem>
                                             <SelectItem value="zoom">Zoom</SelectItem>
+                                            <SelectItem value="whatsapp">WhatsApp Video</SelectItem>
                                             <SelectItem value="teams">Microsoft Teams</SelectItem>
                                             <SelectItem value="other">Otra plataforma</SelectItem>
                                         </SelectContent>
@@ -1486,22 +1530,219 @@ const NewAppointmentDialog = ({
                                 </div>
                             </>
                         ) : (
-                            <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                <Label htmlFor="location">Ubicación / Consultorio</Label>
-                                <div className="relative">
-                                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        id="location"
-                                        placeholder="Ej. Consultorio 302, Piso 3"
-                                        className="pl-9"
-                                        value={formData.location}
-                                        onChange={(e) => !isReadOnly && setFormData({ ...formData, location: e.target.value })}
-                                        disabled={isSubmitting || isReadOnly}
-                                    />
+                            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-sm font-semibold flex items-center gap-1.5">
+                                        <Building2 className="h-4 w-4 text-primary" />
+                                        Sede / Consultorio Presencial
+                                    </Label>
+                                    {!isReadOnly && !isAddingLocation && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setIsAddingLocation(true);
+                                                setNewLocName('');
+                                                setNewLocAddress('');
+                                                setNewLocInstructions('');
+                                            }}
+                                            className="h-7 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10"
+                                        >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            Otra sede
+                                        </Button>
+                                    )}
                                 </div>
-                                <p className="text-xs text-muted-foreground">
-                                    Especifica la dirección física o el consultorio para esta cita
-                                </p>
+
+                                {!isAddingLocation ? (
+                                    <div className="space-y-2.5">
+                                        {/* Lista de chips / botones de sedes registradas */}
+                                        <div className="flex flex-wrap gap-2">
+                                            {locations.map((loc) => {
+                                                const isSelected = Boolean(
+                                                    formData.location && (
+                                                        formData.location.startsWith(loc.name) ||
+                                                        (loc.address && formData.location.includes(loc.address))
+                                                    )
+                                                );
+
+                                                return (
+                                                    <button
+                                                        key={loc.id}
+                                                        type="button"
+                                                        disabled={isReadOnly}
+                                                        onClick={() => {
+                                                            const locStr = `${loc.name}${loc.address ? ` - ${loc.address}` : ''}${loc.instructions ? ` [Ref: ${loc.instructions}]` : ''}`;
+                                                            setFormData(prev => ({ ...prev, location: locStr }));
+                                                        }}
+                                                        className={cn(
+                                                            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all text-left",
+                                                            isSelected
+                                                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs ring-1 ring-primary/30"
+                                                                : "border-border bg-card hover:bg-accent/50 text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        <MapPin className={cn("h-3.5 w-3.5", isSelected ? "text-primary" : "text-muted-foreground")} />
+                                                        <span>{loc.name}</span>
+                                                        {loc.isDefault && (
+                                                            <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-semibold">
+                                                                Principal
+                                                            </span>
+                                                        )}
+                                                        {isSelected && (
+                                                            <CheckCircle2 className="h-3.5 w-3.5 text-primary ml-1" />
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
+
+                                            {/* Opción Domicilio del Paciente */}
+                                            <button
+                                                type="button"
+                                                disabled={isReadOnly}
+                                                onClick={() => {
+                                                    setFormData(prev => ({ ...prev, location: 'Domicilio del paciente' }));
+                                                }}
+                                                className={cn(
+                                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all text-left",
+                                                    formData.location === 'Domicilio del paciente'
+                                                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs ring-1 ring-primary/30"
+                                                        : "border-border bg-card hover:bg-accent/50 text-muted-foreground"
+                                                )}
+                                            >
+                                                <Home className="h-3.5 w-3.5" />
+                                                <span>Domicilio del paciente</span>
+                                                {formData.location === 'Domicilio del paciente' && (
+                                                    <CheckCircle2 className="h-3.5 w-3.5 text-primary ml-1" />
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        {/* Tarjeta de Detalle del Consultorio Seleccionado */}
+                                        {formData.location ? (
+                                            <div className="p-3.5 rounded-xl border border-border bg-muted/40 space-y-1.5 animate-fade-in">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                                        <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
+                                                        Ubicación asignada para la cita
+                                                    </span>
+                                                    {!isReadOnly && (
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                setIsAddingLocation(true);
+                                                                setNewLocName(formData.location.split(' - ')[0] || formData.location);
+                                                                setNewLocAddress(formData.location.split(' - ')[1]?.split(' [Ref:')[0] || '');
+                                                                setNewLocInstructions(formData.location.split(' [Ref: ')[1]?.replace(']', '') || '');
+                                                            }}
+                                                            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                                                        >
+                                                            Personalizar
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-slate-700 dark:text-slate-200 font-medium">
+                                                    {formData.location}
+                                                </p>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    Esta dirección se incluirá automáticamente en los recordatorios de WhatsApp y en tu agenda.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                                                <Info className="h-4 w-4 shrink-0" />
+                                                <span>Selecciona un consultorio de la lista de arriba para evitar errores de dirección.</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    /* Formulario para agregar / personalizar sede */
+                                    <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                                        <div className="flex items-center justify-between border-b border-primary/10 pb-2">
+                                            <span className="text-xs font-bold text-primary flex items-center gap-1.5">
+                                                <Plus className="h-4 w-4" />
+                                                Nueva Sede / Consultorio
+                                            </span>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setIsAddingLocation(false)}
+                                                className="h-6 px-2 text-[11px]"
+                                            >
+                                                Cancelar
+                                            </Button>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                                <Label className="text-xs">Nombre de la Sede / Consultorio *</Label>
+                                                <Input
+                                                    placeholder="Ej. Consultorio Roma Norte"
+                                                    value={newLocName}
+                                                    onChange={(e) => setNewLocName(e.target.value)}
+                                                    className="h-8 text-xs bg-background"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-xs">Dirección Física *</Label>
+                                                <Input
+                                                    placeholder="Ej. Av. Álvaro Obregón 151, Int. 301"
+                                                    value={newLocAddress}
+                                                    onChange={(e) => setNewLocAddress(e.target.value)}
+                                                    className="h-8 text-xs bg-background"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label className="text-xs">Referencias / Instrucciones de acceso (opcional)</Label>
+                                            <Input
+                                                placeholder="Ej. Piso 3, tocar interfón 301. Edificio con elevador."
+                                                value={newLocInstructions}
+                                                onChange={(e) => setNewLocInstructions(e.target.value)}
+                                                className="h-8 text-xs bg-background"
+                                            />
+                                        </div>
+
+                                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
+                                            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={saveForFuture}
+                                                    onChange={(e) => setSaveForFuture(e.target.checked)}
+                                                    className="rounded border-gray-300 text-primary focus:ring-primary h-3.5 w-3.5"
+                                                />
+                                                <span>Guardar en mi catálogo para futuras citas</span>
+                                            </label>
+
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                disabled={!newLocName.trim()}
+                                                onClick={async () => {
+                                                    const locStr = `${newLocName.trim()}${newLocAddress.trim() ? ` - ${newLocAddress.trim()}` : ''}${newLocInstructions.trim() ? ` [Ref: ${newLocInstructions.trim()}]` : ''}`;
+                                                    if (saveForFuture) {
+                                                        await saveLocation({
+                                                            name: newLocName.trim(),
+                                                            address: newLocAddress.trim() || 'Consultorio',
+                                                            instructions: newLocInstructions.trim() || undefined,
+                                                        });
+                                                    }
+                                                    setFormData(prev => ({ ...prev, location: locStr }));
+                                                    setIsAddingLocation(false);
+                                                }}
+                                                className="h-8 text-xs gap-1 self-end sm:self-auto"
+                                            >
+                                                <Check className="h-3.5 w-3.5" />
+                                                Aplicar Ubicación
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -1520,24 +1761,69 @@ const NewAppointmentDialog = ({
                                     />
                                 </div>
                                 {formData.isRecurring && (
-                                    <div className="flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                                        <div className="flex-1 space-y-2">
-                                            <Label htmlFor="weeks" className="text-xs">Número de semanas</Label>
-                                            <Input
-                                                id="weeks"
-                                                type="number"
-                                                min={2}
-                                                max={12}
-                                                value={formData.recurrenceWeeks}
-                                                onChange={(e) => !isReadOnly && setFormData({ ...formData, recurrenceWeeks: parseInt(e.target.value) || 2 })}
-                                                className="h-8"
-                                                disabled={isReadOnly}
-                                            />
+                                    <div className="space-y-3 p-3.5 rounded-xl border border-primary/20 bg-primary/[0.02] animate-in fade-in slide-in-from-top-2 duration-200">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="space-y-0.5">
+                                                <Label htmlFor="weeks" className="text-xs font-semibold">Número de semanas</Label>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    Se programarán <span className="font-bold text-primary">{Math.max(2, Math.min(52, parseInt(String(formData.recurrenceWeeks), 10) || 2))} sesiones</span> consecutivas (1 por semana).
+                                                </p>
+                                            </div>
+                                            <div className="w-24 shrink-0">
+                                                <Input
+                                                    id="weeks"
+                                                    type="number"
+                                                    min={2}
+                                                    max={52}
+                                                    value={formData.recurrenceWeeks}
+                                                    onChange={(e) => {
+                                                        if (isReadOnly) return;
+                                                        const val = e.target.value;
+                                                        if (val === '') {
+                                                            setFormData({ ...formData, recurrenceWeeks: '' });
+                                                        } else {
+                                                            const parsed = parseInt(val, 10);
+                                                            setFormData({ ...formData, recurrenceWeeks: isNaN(parsed) ? '' : parsed });
+                                                        }
+                                                    }}
+                                                    onBlur={() => {
+                                                        const val = parseInt(String(formData.recurrenceWeeks), 10);
+                                                        if (!val || val < 2) {
+                                                            setFormData({ ...formData, recurrenceWeeks: 2 });
+                                                        } else if (val > 52) {
+                                                            setFormData({ ...formData, recurrenceWeeks: 52 });
+                                                        }
+                                                    }}
+                                                    placeholder="2"
+                                                    className="h-9 text-center font-bold text-sm bg-card"
+                                                    disabled={isReadOnly}
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="flex-[2] pt-6">
-                                            <p className="text-[10px] text-muted-foreground italic">
-                                                Se crearán {formData.recurrenceWeeks} sesiones en total.
-                                            </p>
+
+                                        {/* Presets rápidos de tratamiento */}
+                                        <div className="flex items-center flex-wrap gap-1.5 pt-1 border-t border-border/40">
+                                            <span className="text-[10px] text-muted-foreground font-medium mr-1">Frecuentes:</span>
+                                            {[
+                                                { label: '4 sem (1 mes)', weeks: 4 },
+                                                { label: '8 sem (2 meses)', weeks: 8 },
+                                                { label: '12 sem (3 meses)', weeks: 12 },
+                                                { label: '24 sem (6 meses)', weeks: 24 },
+                                            ].map((preset) => (
+                                                <button
+                                                    key={preset.weeks}
+                                                    type="button"
+                                                    onClick={() => !isReadOnly && setFormData({ ...formData, recurrenceWeeks: preset.weeks })}
+                                                    className={cn(
+                                                        "px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all border",
+                                                        Number(formData.recurrenceWeeks) === preset.weeks
+                                                            ? "bg-primary text-white border-primary shadow-xs"
+                                                            : "bg-background text-muted-foreground border-border/70 hover:border-primary/40 hover:text-foreground"
+                                                    )}
+                                                >
+                                                    {preset.label}
+                                                </button>
+                                            ))}
                                         </div>
                                     </div>
                                 )}

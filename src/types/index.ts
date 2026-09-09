@@ -141,6 +141,8 @@ export interface Profile {
     avatar_url?: string;
     organization_id?: string;
     role?: 'admin' | 'therapist' | 'receptionist';
+    default_meeting_platform?: string;
+    custom_meeting_link?: string;
 }
 
 export interface AuditLog {

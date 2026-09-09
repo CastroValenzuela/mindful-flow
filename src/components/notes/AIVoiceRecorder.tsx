@@ -41,6 +41,18 @@ export default function AIVoiceRecorder({ onCancel, onSuccess }: AIVoiceRecorder
     return () => clearInterval(interval);
   }, [state]);
 
+  // Keep-alive clínico: mientras se graba audio, renovar temporizador de inactividad
+  useEffect(() => {
+    if (state !== 'recording') return;
+
+    window.dispatchEvent(new CustomEvent('mindful-keepalive'));
+    const keepAliveInterval = setInterval(() => {
+      window.dispatchEvent(new CustomEvent('mindful-keepalive'));
+    }, 30000); // Cada 30s mientras se dicta
+
+    return () => clearInterval(keepAliveInterval);
+  }, [state]);
+
   // Audio simulation logic when recording
   useEffect(() => {
     let interval: NodeJS.Timeout;
