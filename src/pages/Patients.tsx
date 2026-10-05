@@ -1492,7 +1492,7 @@ const Patients = () => {
                                             </div>
                                             <div>
                                               <p className="text-xs font-bold text-muted-foreground uppercase opacity-50">Sesión Clínica</p>
-                                              <p className="text-sm font-bold">{format(new Date(note.date), 'd MMMM, yyyy', { locale: es })}</p>
+                                              <p className="text-sm font-bold">{format(parseISO(note.date), 'd MMMM, yyyy', { locale: es })}</p>
                                             </div>
                                           </div>
                                           <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-widest bg-primary/10 text-primary border-primary/20 rounded-md px-2.5 py-0.5">{note.session_number}</Badge>
@@ -1531,7 +1531,7 @@ const Patients = () => {
                                                 <div className="mt-0.5 flex flex-col sm:flex-row sm:items-center gap-2">
                                                   {note.mood.rating !== undefined && (
                                                     <span className="text-xs font-bold text-amber-600 bg-amber-500/10 px-2.5 py-1 rounded-md border border-amber-500/20 w-max shrink-0">
-                                                      Calificación: {note.mood.rating}/10
+                                                      Calificación: {note.mood.rating > 10 ? `${note.mood.rating}/100` : `${note.mood.rating}/10`}
                                                     </span>
                                                   )}
                                                   {note.mood.notes && <span className="text-xs text-slate-500 dark:text-slate-400 italic">"{note.mood.notes}"</span>}

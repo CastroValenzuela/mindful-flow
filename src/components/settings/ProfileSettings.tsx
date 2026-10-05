@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useProfileQuery, useUpdateProfileMutation } from '@/hooks/useSettingsData';
 import AvatarUpload from '@/components/settings/AvatarUpload';
+import ProfessionalSignaturePad from '@/components/settings/ProfessionalSignaturePad';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -101,11 +102,6 @@ export default function ProfileSettings() {
   const [originalSlug, setOriginalSlug] = useState('');
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [slugSuggestions, setSlugSuggestions] = useState<string[]>([]);
-
-  const sigCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [isSigDrawing, setIsSigDrawing] = useState(false);
-  const [hasSigContent, setHasSigContent] = useState(false);
-  const sigLastPos = useRef<{ x: number; y: number } | null>(null);
 
   const [cedulas, setCedulas] = useState<Cedula[]>([]);
   const [cursos, setCursos] = useState<Curso[]>([]);
@@ -940,151 +936,19 @@ export default function ProfileSettings() {
                     <PenTool className="h-3.5 w-3.5 text-primary" />
                     Firma Profesional
                   </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Se incluirá automáticamente en todos los reportes y expedientes generados.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Se incluirá automáticamente en todos los reportes, recetas y expedientes generados conforme a NOM-024-SSA3-2012.
+                  </p>
                 </div>
               </div>
 
-              {profile.signature_data ? (
-                <div className="space-y-3">
-                  <div className="relative rounded-2xl border-2 border-primary/20 bg-white p-4 group">
-                    <img src={profile.signature_data} alt="Firma profesional" className="max-h-[120px] mx-auto" />
-                    <div className="absolute inset-0 bg-black/40 rounded-2xl opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5 bg-white/90 hover:bg-white"
-                        onClick={() => setProfile({ ...profile, signature_data: null })}
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" /> Cambiar firma
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-center text-success font-medium uppercase tracking-widest flex items-center justify-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Firma registrada
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className={`relative rounded-2xl border-2 border-dashed transition-colors border-primary/30 bg-white hover:border-primary/60 cursor-crosshair`}>
-                    <canvas
-                      ref={sigCanvasRef}
-                      width={800}
-                      height={300}
-                      style={{ width: '100%', height: '150px', borderRadius: '14px', display: 'block' }}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        const canvas = sigCanvasRef.current;
-                        if (!canvas) return;
-                        setIsSigDrawing(true);
-                        const rect = canvas.getBoundingClientRect();
-                        const scaleX = canvas.width / rect.width;
-                        const scaleY = canvas.height / rect.height;
-                        sigLastPos.current = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-                      }}
-                      onMouseMove={(e) => {
-                        if (!isSigDrawing) return;
-                        e.preventDefault();
-                        const canvas = sigCanvasRef.current;
-                        if (!canvas) return;
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx || !sigLastPos.current) return;
-                        const rect = canvas.getBoundingClientRect();
-                        const scaleX = canvas.width / rect.width;
-                        const scaleY = canvas.height / rect.height;
-                        const pos = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-                        ctx.beginPath();
-                        ctx.moveTo(sigLastPos.current.x, sigLastPos.current.y);
-                        ctx.lineTo(pos.x, pos.y);
-                        ctx.strokeStyle = '#1a1a2e';
-                        ctx.lineWidth = 2.5;
-                        ctx.lineCap = 'round';
-                        ctx.lineJoin = 'round';
-                        ctx.stroke();
-                        sigLastPos.current = pos;
-                        setHasSigContent(true);
-                      }}
-                      onMouseUp={() => { setIsSigDrawing(false); sigLastPos.current = null; }}
-                      onMouseLeave={() => { setIsSigDrawing(false); sigLastPos.current = null; }}
-                      onTouchStart={(e) => {
-                        e.preventDefault();
-                        const canvas = sigCanvasRef.current;
-                        if (!canvas) return;
-                        setIsSigDrawing(true);
-                        const rect = canvas.getBoundingClientRect();
-                        const scaleX = canvas.width / rect.width;
-                        const scaleY = canvas.height / rect.height;
-                        const touch = e.touches[0];
-                        sigLastPos.current = { x: (touch.clientX - rect.left) * scaleX, y: (touch.clientY - rect.top) * scaleY };
-                      }}
-                      onTouchMove={(e) => {
-                        if (!isSigDrawing) return;
-                        e.preventDefault();
-                        const canvas = sigCanvasRef.current;
-                        if (!canvas) return;
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx || !sigLastPos.current) return;
-                        const rect = canvas.getBoundingClientRect();
-                        const scaleX = canvas.width / rect.width;
-                        const scaleY = canvas.height / rect.height;
-                        const touch = e.touches[0];
-                        const pos = { x: (touch.clientX - rect.left) * scaleX, y: (touch.clientY - rect.top) * scaleY };
-                        ctx.beginPath();
-                        ctx.moveTo(sigLastPos.current.x, sigLastPos.current.y);
-                        ctx.lineTo(pos.x, pos.y);
-                        ctx.strokeStyle = '#1a1a2e';
-                        ctx.lineWidth = 2.5;
-                        ctx.lineCap = 'round';
-                        ctx.lineJoin = 'round';
-                        ctx.stroke();
-                        sigLastPos.current = pos;
-                        setHasSigContent(true);
-                      }}
-                      onTouchEnd={() => { setIsSigDrawing(false); sigLastPos.current = null; }}
-                    />
-                    {!hasSigContent && (
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <p className="text-sm text-muted-foreground/50 select-none">Dibuja tu firma aquí</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5"
-                      disabled={!hasSigContent}
-                      onClick={() => {
-                        const canvas = sigCanvasRef.current;
-                        if (!canvas) return;
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) return;
-                        ctx.fillStyle = '#ffffff';
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        setHasSigContent(false);
-                      }}
-                    >
-                      <Eraser className="h-3.5 w-3.5" /> Limpiar
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="zen"
-                      size="sm"
-                      className="gap-1.5"
-                      disabled={!hasSigContent}
-                      onClick={() => {
-                        const canvas = sigCanvasRef.current;
-                        if (!canvas || !hasSigContent) return;
-                        setProfile({ ...profile, signature_data: canvas.toDataURL('image/png') });
-                        toast.success('Firma capturada. Recuerda guardar tu perfil.');
-                      }}
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar firma
-                    </Button>
-                  </div>
-                </div>
-              )}
+              <ProfessionalSignaturePad
+                value={profile.signature_data}
+                userName={profile.full_name ? `${profile.prefix && profile.prefix !== 'none' ? profile.prefix + ' ' : ''}${profile.full_name}` : ''}
+                onChange={(sigData) => {
+                  setProfile(prev => ({ ...prev, signature_data: sigData }));
+                }}
+              />
             </div>
 
             {/* Logotipo Personalizado / Consultorio */}

@@ -2,23 +2,31 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Slider } from '@/components/ui/slider';
 import {
   Save,
   X,
+  Plus,
+  Trash2,
   Sparkles,
   FileText,
   Loader2,
   Download,
   Activity,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Smile,
+  ListChecks,
+  CheckSquare,
+  Square,
+  Copy,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -28,6 +36,22 @@ import { useOrganization } from '@/hooks/useOrganization';
 import { generateSessionNotePDF } from '@/lib/generateExpedientePDF';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
+
+export interface AgendaItem {
+  id?: string;
+  topic?: string;
+  situation?: string;
+  thoughts?: string;
+  emotions?: string;
+  interventions?: string;
+  notes?: string;
+}
+
+export interface BridgeItem {
+  text: string;
+  completed: boolean;
+}
 
 interface DiffPart {
   type: 'added' | 'removed' | 'unchanged';
@@ -76,7 +100,7 @@ function getSentenceDiff(original: string, modified: string): DiffPart[] {
       result.unshift({
         type: 'unchanged',
         text: origSentences[i - 1],
-        id: `unchanged-${i}-${j}`
+        id: `unchanged-${i}-${j}`,
       });
       i--;
       j--;
@@ -84,20 +108,45 @@ function getSentenceDiff(original: string, modified: string): DiffPart[] {
       result.unshift({
         type: 'added',
         text: modSentences[j - 1],
-        id: `added-${j}-${Math.random().toString(36).substr(2, 4)}`
+        id: `added-${j}-${Math.random().toString(36).substr(2, 4)}`,
       });
       j--;
     } else {
       result.unshift({
         type: 'removed',
         text: origSentences[i - 1],
-        id: `removed-${i}-${Math.random().toString(36).substr(2, 4)}`
+        id: `removed-${i}-${Math.random().toString(36).substr(2, 4)}`,
       });
       i--;
     }
   }
 
   return result;
+}
+
+export function isStructuredAgenda(items?: any[]): boolean {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  if (items.length > 1) return true;
+  const it = items[0];
+  const generic = !it.topic || ['Reporte Clínico', 'Consulta IA', 'SOAP', 'General', 'tcc-clasica'].includes(it.topic);
+  return !generic || Boolean(it.situation || it.emotions || it.interventions || it.notes);
+}
+
+export function compileAgendaToHtml(items: AgendaItem[]): string {
+  if (!items || items.length === 0) return '';
+  return items
+    .filter((it) => it.topic || it.situation || it.thoughts || it.emotions || it.interventions || it.notes)
+    .map((it, idx) => {
+      const title = it.topic ? `Tema ${idx + 1}: ${it.topic}` : `Tema ${idx + 1}`;
+      const lines = [`<h3 style="font-weight: 700; font-size: 1.1rem; color: #0f766e; margin-bottom: 0.5rem;">${title}</h3>`];
+      if (it.situation) lines.push(`<p><strong>Situación:</strong> ${it.situation}</p>`);
+      if (it.emotions) lines.push(`<p><strong>Emociones:</strong> ${it.emotions}</p>`);
+      if (it.thoughts) lines.push(`<p><strong>Imp. Clínica:</strong> ${it.thoughts}</p>`);
+      if (it.interventions) lines.push(`<p><strong>Intervenciones:</strong> ${it.interventions}</p>`);
+      if (it.notes) lines.push(`<p><strong>Notas:</strong> ${it.notes}</p>`);
+      return lines.join('');
+    })
+    .join('<hr style="margin: 1.25rem 0; opacity: 0.2;" />');
 }
 
 interface NoteEditorSheetProps {
@@ -127,20 +176,26 @@ export default function NoteEditorSheet({
   const { organization } = useOrganization();
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
 
-  
   // Note data states
   const [editorContent, setEditorContent] = useState('');
+  const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
   const [bulletPoints, setBulletPoints] = useState('');
+  const [bridgeItems, setBridgeItems] = useState<BridgeItem[]>([]);
+  const [newBridgeItemText, setNewBridgeItemText] = useState('');
+  const [moodRating, setMoodRating] = useState<number | null>(null);
+  const [moodNotes, setMoodNotes] = useState('');
   const [cie10Code, setCie10Code] = useState('');
   const [cie10Description, setCie10Description] = useState('');
   const [diagnosticoPrincipal, setDiagnosticoPrincipal] = useState('');
-  
+
   // UX states
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [showDiagnosticPanel, setShowDiagnosticPanel] = useState(false);
-  
+  const [showMoodPanel, setShowMoodPanel] = useState(false);
+  const [showBridgePanel, setShowBridgePanel] = useState(true);
+
   // AI Refinement states
   const [aiRefinePrompt, setAiRefinePrompt] = useState('');
   const [isRefiningAI, setIsRefiningAI] = useState(false);
@@ -151,10 +206,6 @@ export default function NoteEditorSheet({
   const [draftData, setDraftData] = useState<any>(null);
   const [isDirty, setIsDirty] = useState(false);
 
-  // Inline AI states
-  const [isInlineAIPanelOpen, setIsInlineAIPanelOpen] = useState(false);
-  const [inlineAIInstruction, setInlineAIInstruction] = useState('');
-
   // Interactive Diff states
   const [diffParts, setDiffParts] = useState<DiffPart[] | null>(null);
 
@@ -163,20 +214,72 @@ export default function NoteEditorSheet({
     if (isOpen) {
       setActiveTab(initialMode);
       if (note) {
-        // Load manual editor text (from agenda[0].thoughts or fallback to transcript_summary)
-        const thoughtsText = note.agenda?.[0]?.thoughts || note.transcript_summary || '';
-        setEditorContent(thoughtsText);
+        // 1. Structured Agenda vs Freeform
+        const isStructured = isStructuredAgenda(note.agenda);
+        if (Array.isArray(note.agenda) && note.agenda.length > 0) {
+          const mappedAgenda: AgendaItem[] = note.agenda.map((it, idx) => ({
+            id: it.id || `ag-${idx + 1}-${Date.now()}`,
+            topic: it.topic || '',
+            situation: it.situation || '',
+            thoughts: it.thoughts || '',
+            emotions: it.emotions || '',
+            interventions: it.interventions || '',
+            notes: it.notes || '',
+          }));
+          setAgendaItems(mappedAgenda);
+
+          if (note.transcript_summary) {
+            setEditorContent(note.transcript_summary);
+          } else if (isStructured) {
+            // Pre-compile into editorContent as well so the user immediately sees all their text
+            setEditorContent(compileAgendaToHtml(mappedAgenda));
+          } else {
+            // Freeform AI report stored in thoughts
+            setEditorContent(note.agenda[0]?.thoughts || '');
+          }
+        } else {
+          setAgendaItems([]);
+          setEditorContent(note.transcript_summary || '');
+        }
+
+        // 2. Bridge & Homework
         setBulletPoints(note.bridge?.notes || '');
+        setBridgeItems(Array.isArray(note.bridge?.items) ? note.bridge.items : []);
+        if (Array.isArray(note.bridge?.items) && note.bridge.items.length > 0) {
+          setShowBridgePanel(true);
+        }
+
+        // 3. Mood
+        if (note.mood && (note.mood.rating !== undefined || note.mood.notes)) {
+          setMoodRating(typeof note.mood.rating === 'number' ? note.mood.rating : 50);
+          setMoodNotes(note.mood.notes || '');
+          setShowMoodPanel(true);
+        } else {
+          setMoodRating(null);
+          setMoodNotes('');
+          setShowMoodPanel(false);
+        }
+
+        // 4. CIE-10 and Diagnóstico
         setCie10Code(note.cie10_code || '');
         setCie10Description(note.cie10_description || '');
         setDiagnosticoPrincipal(note.diagnostico_principal || '');
+        if (note.cie10_code || note.diagnostico_principal) {
+          setShowDiagnosticPanel(true);
+        }
       } else {
         // Clear for new note
         setEditorContent('');
+        setAgendaItems([]);
         setBulletPoints('');
+        setBridgeItems([]);
+        setMoodRating(null);
+        setMoodNotes('');
         setCie10Code('');
         setCie10Description('');
         setDiagnosticoPrincipal('');
+        setShowDiagnosticPanel(false);
+        setShowMoodPanel(false);
       }
       setIsDirty(false);
     }
@@ -190,21 +293,12 @@ export default function NoteEditorSheet({
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          
-          const dbThoughts = note?.agenda?.[0]?.thoughts || note?.transcript_summary || '';
-          const dbBullet = note?.bridge?.notes || '';
-          const dbCieCode = note?.cie10_code || '';
-          const dbCieDesc = note?.cie10_description || '';
-          const dbDiag = note?.diagnostico_principal || '';
-          
-          const hasChanges = 
-            parsed.editorContent !== dbThoughts ||
-            parsed.bulletPoints !== dbBullet ||
-            parsed.cie10Code !== dbCieCode ||
-            parsed.cie10Description !== dbCieDesc ||
-            parsed.diagnosticoPrincipal !== dbDiag;
-
-          if (hasChanges && (parsed.editorContent || parsed.bulletPoints)) {
+          if (
+            parsed &&
+            (parsed.editorContent ||
+              parsed.bulletPoints ||
+              (parsed.agendaItems && parsed.agendaItems.length > 0))
+          ) {
             setDraftData(parsed);
             setHasDraft(true);
           }
@@ -228,31 +322,53 @@ export default function NoteEditorSheet({
       const draftKey = `mindful-flow-draft-${patientId}-${note?.id || 'new'}`;
       const payload = {
         editorContent,
+        agendaItems,
         bulletPoints,
+        bridgeItems,
+        moodRating,
+        moodNotes,
         cie10Code,
         cie10Description,
         diagnosticoPrincipal,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
       localStorage.setItem(draftKey, JSON.stringify(payload));
       setAutosaveStatus('saved');
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [editorContent, bulletPoints, cie10Code, cie10Description, diagnosticoPrincipal, isOpen, isDirty, patientId, note]);
+  }, [
+    editorContent,
+    agendaItems,
+    bulletPoints,
+    bridgeItems,
+    moodRating,
+    moodNotes,
+    cie10Code,
+    cie10Description,
+    diagnosticoPrincipal,
+    isOpen,
+    isDirty,
+    patientId,
+    note,
+  ]);
 
-  // Escuchar vaciado de emergencia ante timeout de inactividad
+  // Emergency save on inactivity timeout
   useEffect(() => {
     const handleEmergencySave = () => {
       if (isOpen && isDirty) {
         const draftKey = `mindful-flow-draft-${patientId}-${note?.id || 'new'}`;
         const payload = {
           editorContent,
+          agendaItems,
           bulletPoints,
+          bridgeItems,
+          moodRating,
+          moodNotes,
           cie10Code,
           cie10Description,
           diagnosticoPrincipal,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         };
         try {
           localStorage.setItem(draftKey, JSON.stringify(payload));
@@ -263,15 +379,33 @@ export default function NoteEditorSheet({
     };
     window.addEventListener('mindful-emergency-save', handleEmergencySave);
     return () => window.removeEventListener('mindful-emergency-save', handleEmergencySave);
-  }, [isOpen, isDirty, patientId, note, editorContent, bulletPoints, cie10Code, cie10Description, diagnosticoPrincipal]);
+  }, [
+    isOpen,
+    isDirty,
+    patientId,
+    note,
+    editorContent,
+    agendaItems,
+    bulletPoints,
+    bridgeItems,
+    moodRating,
+    moodNotes,
+    cie10Code,
+    cie10Description,
+    diagnosticoPrincipal,
+  ]);
 
   const handleRestoreDraft = () => {
     if (!draftData) return;
-    setEditorContent(draftData.editorContent || '');
-    setBulletPoints(draftData.bulletPoints || '');
-    setCie10Code(draftData.cie10Code || '');
-    setCie10Description(draftData.cie10Description || '');
-    setDiagnosticoPrincipal(draftData.diagnosticoPrincipal || '');
+    if (draftData.editorContent !== undefined) setEditorContent(draftData.editorContent);
+    if (draftData.agendaItems !== undefined) setAgendaItems(draftData.agendaItems);
+    if (draftData.bulletPoints !== undefined) setBulletPoints(draftData.bulletPoints);
+    if (draftData.bridgeItems !== undefined) setBridgeItems(draftData.bridgeItems);
+    if (draftData.moodRating !== undefined) setMoodRating(draftData.moodRating);
+    if (draftData.moodNotes !== undefined) setMoodNotes(draftData.moodNotes);
+    if (draftData.cie10Code !== undefined) setCie10Code(draftData.cie10Code);
+    if (draftData.cie10Description !== undefined) setCie10Description(draftData.cie10Description);
+    if (draftData.diagnosticoPrincipal !== undefined) setDiagnosticoPrincipal(draftData.diagnosticoPrincipal);
     setHasDraft(false);
     setIsDirty(true);
     toast.success('Borrador local restaurado');
@@ -285,31 +419,73 @@ export default function NoteEditorSheet({
     toast.info('Borrador descartado');
   };
 
-  // Shortcut effect for Cmd+J / Ctrl+J
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
-        e.preventDefault();
-        if (activeTab === 'manual') {
-          setIsInlineAIPanelOpen((prev) => !prev);
-        }
-      }
-    };
-    if (isOpen && activeTab === 'manual') {
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, activeTab]);
+  // Agenda Item handlers
+  const handleUpdateAgendaItem = (index: number, field: keyof AgendaItem, value: string) => {
+    setAgendaItems((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+    setIsDirty(true);
+  };
+
+  const handleAddAgendaItem = () => {
+    setAgendaItems((prev) => [
+      ...prev,
+      {
+        id: `ag-${prev.length + 1}-${Date.now()}`,
+        topic: '',
+        situation: '',
+        thoughts: '',
+        emotions: '',
+        interventions: '',
+        notes: '',
+      },
+    ]);
+    setIsDirty(true);
+  };
+
+  const handleRemoveAgendaItem = (index: number) => {
+    setAgendaItems((prev) => prev.filter((_, i) => i !== index));
+    setIsDirty(true);
+  };
+
+  const handleSyncAgendaToEditor = () => {
+    const html = compileAgendaToHtml(agendaItems);
+    setEditorContent(html);
+    setIsDirty(true);
+    toast.success('Temas compilados en el reporte clínico');
+  };
+
+  // Bridge Item handlers
+  const handleAddBridgeItem = () => {
+    if (!newBridgeItemText.trim()) return;
+    setBridgeItems((prev) => [...prev, { text: newBridgeItemText.trim(), completed: false }]);
+    setNewBridgeItemText('');
+    setIsDirty(true);
+  };
+
+  const handleToggleBridgeItem = (index: number) => {
+    setBridgeItems((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], completed: !updated[index].completed };
+      return updated;
+    });
+    setIsDirty(true);
+  };
+
+  const handleRemoveBridgeItem = (index: number) => {
+    setBridgeItems((prev) => prev.filter((_, i) => i !== index));
+    setIsDirty(true);
+  };
 
   const applyFinalText = (parts: DiffPart[]) => {
-    const text = parts.map(p => p.text).join(' ');
+    const text = parts.map((p) => p.text).join(' ');
     const formatted = text
       .split('\n')
-      .map(p => p.trim())
+      .map((p) => p.trim())
       .filter(Boolean)
-      .map(p => `<p>${p}</p>`)
+      .map((p) => `<p>${p}</p>`)
       .join('');
 
     setEditorContent(formatted || text);
@@ -317,53 +493,9 @@ export default function NoteEditorSheet({
     setIsDirty(true);
   };
 
-  const handleAcceptPart = (id: string) => {
-    if (!diffParts) return;
-    const updated = diffParts.map(part => {
-      if (part.id === id) {
-        if (part.type === 'added') {
-          return { ...part, type: 'unchanged' as const };
-        }
-        if (part.type === 'removed') {
-          return null;
-        }
-      }
-      return part;
-    }).filter(Boolean) as DiffPart[];
-
-    setDiffParts(updated);
-    
-    const remainingChanges = updated.some(p => p.type === 'added' || p.type === 'removed');
-    if (!remainingChanges) {
-      applyFinalText(updated);
-    }
-  };
-
-  const handleRejectPart = (id: string) => {
-    if (!diffParts) return;
-    const updated = diffParts.map(part => {
-      if (part.id === id) {
-        if (part.type === 'added') {
-          return null;
-        }
-        if (part.type === 'removed') {
-          return { ...part, type: 'unchanged' as const };
-        }
-      }
-      return part;
-    }).filter(Boolean) as DiffPart[];
-
-    setDiffParts(updated);
-
-    const remainingChanges = updated.some(p => p.type === 'added' || p.type === 'removed');
-    if (!remainingChanges) {
-      applyFinalText(updated);
-    }
-  };
-
   const handleAcceptAllDiff = () => {
     if (!diffParts) return;
-    const finalParts = diffParts.map(part => {
+    const finalParts = diffParts.map((part) => {
       if (part.type === 'added') return { ...part, type: 'unchanged' as const };
       if (part.type === 'removed') return null;
       return part;
@@ -374,7 +506,7 @@ export default function NoteEditorSheet({
 
   const handleRejectAllDiff = () => {
     if (!diffParts) return;
-    const finalParts = diffParts.map(part => {
+    const finalParts = diffParts.map((part) => {
       if (part.type === 'added') return null;
       if (part.type === 'removed') return { ...part, type: 'unchanged' as const };
       return part;
@@ -413,7 +545,7 @@ export default function NoteEditorSheet({
       ctx += `Nombre: ${patient.name}\n`;
       if (age) ctx += `Edad: ${age} años\n`;
       ctx += `Género: ${patient.gender === 'M' ? 'Masculino' : patient.gender === 'F' ? 'Femenino' : patient.gender || 'No especificado'}\n`;
-      
+
       const clinicalNotes = patient.patient_clinical_data?.[0]?.notes;
       if (clinicalNotes) ctx += `Notas generales: ${clinicalNotes}\n`;
 
@@ -443,7 +575,7 @@ export default function NoteEditorSheet({
     setIsProcessingAI(true);
     try {
       const patientContext = await fetchPatientContext();
-      
+
       const { data, error } = await supabase.functions.invoke('process-clinical-note', {
         body: {
           text: bulletPoints,
@@ -458,13 +590,13 @@ export default function NoteEditorSheet({
         setEditorContent(data.report);
         if (data.cie10) setCie10Code(data.cie10);
         if (data.diagnostico) setDiagnosticoPrincipal(data.diagnostico);
-        
+
         toast.success('Reporte clínico estructurado generado', {
           icon: <Sparkles className="h-4 w-4 text-primary animate-pulse" />,
         });
-        
-        // Auto switch to manual tab for review
+
         setActiveTab('manual');
+        setIsDirty(true);
       } else {
         throw new Error('No se recibió el reporte generado de la IA');
       }
@@ -479,20 +611,27 @@ export default function NoteEditorSheet({
   // Refine note using Writing Tools
   const handleRefineAI = async (instruction: string) => {
     if (!instruction.trim()) return;
-    if (!editorContent.trim()) {
-      toast.error('No hay contenido en el editor para refinar.');
+
+    let contentToRefine = editorContent;
+    if (!contentToRefine.trim() && agendaItems.length > 0) {
+      contentToRefine = compileAgendaToHtml(agendaItems);
+      setEditorContent(contentToRefine);
+    }
+
+    if (!contentToRefine.trim()) {
+      toast.error('No hay contenido en el reporte para refinar.');
       return;
     }
 
     setIsRefiningAI(true);
     try {
       let finalInstruction = instruction;
-      if (instruction === 'Hacer más formal / clínico') {
+      if (instruction === 'Profesionalizar' || instruction === 'Profesionaliza el lenguaje clínico') {
         finalInstruction = 'Reescribe el reporte clínico para hacerlo más formal, técnico y profesional, utilizando terminología psicológica precisa y estructuración impecable.';
-      } else if (instruction === 'Corregir ortografía y redacción') {
+      } else if (instruction === 'Corregir Redacción' || instruction === 'Corrige la redacción y ortografía') {
         finalInstruction = 'Corrige errores ortográficos, de puntuación, concordancia y gramática, sin alterar el contenido clínico ni eliminar información relevante.';
-      } else if (instruction === 'Resumir nota') {
-        finalInstruction = 'Resume este reporte clínico manteniendo la esencia de cada sección SOAP de forma muy sintética y clara.';
+      } else if (instruction === 'Resumir' || instruction === 'Resume de forma concisa') {
+        finalInstruction = 'Resume este reporte clínico manteniendo la esencia de cada sección de forma muy sintética y clara.';
       } else {
         finalInstruction = `Modifica el reporte aplicando esta instrucción: "${instruction}". Mantén la coherencia del resto del texto.`;
       }
@@ -501,16 +640,16 @@ export default function NoteEditorSheet({
         body: {
           text: finalInstruction,
           action: 'refine_note',
-          patient_context: editorContent,
+          patient_context: contentToRefine,
         },
       });
 
       if (error) throw error;
 
       if (data?.report) {
-        const diff = getSentenceDiff(editorContent, data.report);
-        const hasDiffChanges = diff.some(p => p.type === 'added' || p.type === 'removed');
-        
+        const diff = getSentenceDiff(contentToRefine, data.report);
+        const hasDiffChanges = diff.some((p) => p.type === 'added' || p.type === 'removed');
+
         if (hasDiffChanges) {
           setDiffParts(diff);
           toast.info('Revisa los cambios sugeridos por la IA en el editor');
@@ -519,6 +658,7 @@ export default function NoteEditorSheet({
           toast.success('Nota refinada con IA');
         }
         setAiRefinePrompt('');
+        setIsDirty(true);
       } else {
         throw new Error('No se recibió la nota refinada');
       }
@@ -530,10 +670,19 @@ export default function NoteEditorSheet({
     }
   };
 
+  // Backward-compatible handler aliases
+  const handleGenerateWithAI = handleGenerateAI;
+  const handleRefineWithAI = handleRefineAI;
+  const handleAcceptDiff = handleAcceptAllDiff;
+  const handleRejectDiff = handleRejectAllDiff;
+
   // Save changes to Supabase
   const handleSave = async () => {
-    if (!editorContent.trim()) {
-      toast.error('El reporte clínico no puede estar vacío.');
+    const hasAgendaContent = agendaItems.some(
+      (i) => i.topic?.trim() || i.thoughts?.trim() || i.interventions?.trim()
+    );
+    if (!editorContent.trim() && !hasAgendaContent && !bulletPoints.trim()) {
+      toast.error('La nota clínica no puede estar vacía.');
       return;
     }
 
@@ -547,31 +696,50 @@ export default function NoteEditorSheet({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sesión de usuario inactiva');
 
-      const updatedAgenda = note?.agenda ? [...note.agenda] : [];
-      if (updatedAgenda.length === 0) {
-        updatedAgenda.push({
-          id: '',
-          topic: 'Reporte Clínico',
-          situation: '',
-          thoughts: editorContent,
-          emotions: '',
-          interventions: '',
-        });
-      } else {
-        updatedAgenda[0] = { ...updatedAgenda[0], thoughts: editorContent };
+      let finalAgenda = agendaItems;
+      if (finalAgenda.length === 0) {
+        if (editorContent.trim()) {
+          finalAgenda = [
+            {
+              id: note?.agenda?.[0]?.id || '1',
+              topic: 'Reporte Clínico',
+              situation: '',
+              thoughts: editorContent,
+              emotions: '',
+              interventions: '',
+            },
+          ];
+        } else {
+          finalAgenda = note?.agenda || [];
+        }
       }
 
-      const notePayload = {
-        transcript_summary: editorContent,
+      const notePayload: any = {
+        transcript_summary: editorContent || null,
         cie10_code: cie10Code || null,
         cie10_description: cie10Description || null,
         diagnostico_principal: diagnosticoPrincipal || null,
-        bridge: { notes: bulletPoints },
-        agenda: updatedAgenda,
+        bridge: {
+          ...(note?.bridge || {}),
+          items: bridgeItems,
+          notes: bulletPoints,
+        },
+        agenda: finalAgenda,
       };
 
+      if (moodRating !== null || moodNotes) {
+        notePayload.mood = {
+          rating: moodRating ?? 50,
+          notes: moodNotes,
+        };
+      }
+
+      // Preserve existing clinical sections if any
+      if (note?.beliefs) notePayload.beliefs = note.beliefs;
+      if (note?.action_plan) notePayload.action_plan = note.action_plan;
+      if (note?.mental_status) notePayload.mental_status = note.mental_status;
+
       if (note?.id) {
-        // Update existing note
         const { error } = await supabase
           .from('session_notes')
           .update(notePayload)
@@ -580,8 +748,6 @@ export default function NoteEditorSheet({
         if (error) throw error;
         toast.success('Nota clínica actualizada correctamente');
       } else {
-        // Create new note
-        // 1. Get next session number
         const { data: lastNotes } = await supabase
           .from('session_notes')
           .select('session_number')
@@ -606,7 +772,6 @@ export default function NoteEditorSheet({
         toast.success('Nueva nota clínica guardada en el expediente');
       }
 
-      // Clear local draft on successful save
       const draftKey = `mindful-flow-draft-${patientId}-${note?.id || 'new'}`;
       localStorage.removeItem(draftKey);
 
@@ -626,7 +791,7 @@ export default function NoteEditorSheet({
     setIsExporting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No hay sesión activa");
+      if (!user) throw new Error('No hay sesión activa');
 
       const { data: prof } = await supabase
         .from('profiles')
@@ -636,7 +801,15 @@ export default function NoteEditorSheet({
 
       generateSessionNotePDF(
         { name: patientName, id: patientId, date_of_birth: patientDOB },
-        { ...note, transcript_summary: editorContent, cie10_code: cie10Code, diagnostico_principal: diagnosticoPrincipal } as any,
+        {
+          ...note,
+          agenda: agendaItems.length > 0 ? agendaItems : note?.agenda,
+          bridge: { ...(note?.bridge || {}), items: bridgeItems, notes: bulletPoints },
+          mood: moodRating !== null ? { rating: moodRating, notes: moodNotes } : note?.mood,
+          transcript_summary: editorContent,
+          cie10_code: cie10Code,
+          diagnostico_principal: diagnosticoPrincipal,
+        } as any,
         prof || undefined
       );
       toast.success('Reporte PDF descargado con éxito');
@@ -648,7 +821,6 @@ export default function NoteEditorSheet({
     }
   };
 
-  // Format note date nicely
   const getNoteDateFormatted = () => {
     if (!note?.date) return 'Nueva Nota';
     try {
@@ -658,7 +830,7 @@ export default function NoteEditorSheet({
     }
   };
 
-  // ── Shared inner content (used by both Sheet and inline modes) ──
+  // ── Header ──
   const editorHeader = (
     <div className="flex items-center justify-between px-6 py-5 border-b border-border/80 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
       <div className="space-y-1">
@@ -667,9 +839,9 @@ export default function NoteEditorSheet({
           {note ? `Edición de Nota` : 'Nueva Nota Clínica'}
         </h2>
         <p className="text-xs text-muted-foreground font-medium">
-              Paciente: <span className="text-foreground font-semibold">{patientName}</span>
-              {note && ` • Sesión ${note.session_number || 1} (${getNoteDateFormatted()})`}
-            </p>
+          Paciente: <span className="text-foreground font-semibold">{patientName}</span>
+          {note && ` • Sesión ${note.session_number || 1} (${getNoteDateFormatted()})`}
+        </p>
       </div>
       <div className="flex items-center gap-2">
         {note && (
@@ -697,6 +869,7 @@ export default function NoteEditorSheet({
     </div>
   );
 
+  // ── Tabs ──
   const editorTabs = (
     <div className="px-6 py-4 bg-muted/20 border-b border-border/50">
       <Tabs
@@ -724,11 +897,10 @@ export default function NoteEditorSheet({
     </div>
   );
 
+  // ── Body ──
   const editorBody = (
     <>
-      {/* Content Body */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-zen">
-        
         {hasDraft && draftData && (
           <div className="bg-primary/5 border border-primary/20 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in slide-in-from-top duration-300">
             <div className="flex items-start gap-3">
@@ -755,7 +927,6 @@ export default function NoteEditorSheet({
 
         {activeTab === 'manual' ? (
           <div className="space-y-6 animate-in fade-in duration-300">
-            
             {/* AI Writing Tools Panel */}
             <div className="bg-gradient-to-r from-violet-500/5 via-indigo-500/5 to-primary/5 border border-primary/10 p-4 rounded-2xl space-y-3 shadow-sm relative overflow-hidden animate-in slide-in-from-top-1 duration-300">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -764,60 +935,337 @@ export default function NoteEditorSheet({
               </div>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Instrucción libre (ej: 'traduce a tono TCC', 'añade que asistió puntual')"
+                  placeholder="Instrucción libre (ej: 'traduce a tono TCC', 'hazlo más formal')"
                   value={aiRefinePrompt}
                   onChange={(e) => setAiRefinePrompt(e.target.value)}
                   className="flex-1 h-9 rounded-xl border-primary/15 bg-white/70 dark:bg-slate-800/70 text-xs placeholder:text-slate-400"
-                  onKeyDown={(e) => { if (e.key === 'Enter' && aiRefinePrompt.trim()) handleRefineWithAI(aiRefinePrompt); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && aiRefinePrompt.trim()) handleRefineAI(aiRefinePrompt);
+                  }}
                 />
+                <Button
+                  size="sm"
+                  variant="zen"
+                  className="h-9 px-3 text-xs rounded-xl"
+                  onClick={() => handleRefineAI(aiRefinePrompt)}
+                  disabled={isRefiningAI || !aiRefinePrompt.trim()}
+                >
+                  {isRefiningAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Aplicar'}
+                </Button>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" className="h-7 text-[10px] rounded-xl border-primary/20 hover:bg-primary/5 gap-1" onClick={() => handleRefineWithAI('Profesionaliza el lenguaje clínico')} disabled={isRefiningAI || !editorContent.trim()}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[10px] rounded-xl border-primary/20 hover:bg-primary/5 gap-1 font-medium"
+                  onClick={() => handleRefineAI('Profesionalizar')}
+                  disabled={isRefiningAI || (!editorContent.trim() && agendaItems.length === 0)}
+                >
                   <Sparkles className="h-3 w-3 text-primary" /> Profesionalizar
                 </Button>
-                <Button size="sm" variant="outline" className="h-7 text-[10px] rounded-xl border-primary/20 hover:bg-primary/5 gap-1" onClick={() => handleRefineWithAI('Corrige la redacción y ortografía')} disabled={isRefiningAI || !editorContent.trim()}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[10px] rounded-xl border-primary/20 hover:bg-primary/5 gap-1 font-medium"
+                  onClick={() => handleRefineAI('Corregir Redacción')}
+                  disabled={isRefiningAI || (!editorContent.trim() && agendaItems.length === 0)}
+                >
                   <Sparkles className="h-3 w-3 text-orange-500" /> Corregir Redacción
                 </Button>
-                <Button size="sm" variant="outline" className="h-7 text-[10px] rounded-xl border-primary/20 hover:bg-primary/5 gap-1" onClick={() => handleRefineWithAI('Resume de forma concisa')} disabled={isRefiningAI || !editorContent.trim()}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[10px] rounded-xl border-primary/20 hover:bg-primary/5 gap-1 font-medium"
+                  onClick={() => handleRefineAI('Resumir')}
+                  disabled={isRefiningAI || (!editorContent.trim() && agendaItems.length === 0)}
+                >
                   <Sparkles className="h-3 w-3 text-blue-500" /> Resumir
                 </Button>
               </div>
             </div>
 
-            {/* Diagnostic Panel */}
-            <div>
-              <button type="button" onClick={() => setShowDiagnosticPanel(!showDiagnosticPanel)} className="flex items-center gap-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors">
-                {showDiagnosticPanel ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                Datos Diagnósticos (CIE-10)
+            {/* Accordion: Diagnósticos (CIE-10) */}
+            <div className="border border-border/80 rounded-2xl bg-card overflow-hidden transition-all">
+              <button
+                type="button"
+                onClick={() => setShowDiagnosticPanel(!showDiagnosticPanel)}
+                className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-muted/40 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Datos Diagnósticos (CIE-10)
+                  </span>
+                  {cie10Code && (
+                    <Badge variant="outline" className="text-[10px] ml-1 bg-primary/10 text-primary border-primary/20">
+                      {cie10Code}
+                    </Badge>
+                  )}
+                </div>
+                {showDiagnosticPanel ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
               </button>
               {showDiagnosticPanel && (
-                <div className="mt-3 p-4 bg-muted/30 rounded-2xl border border-border/50 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                <div className="p-4 border-t border-border/60 bg-muted/20 space-y-3 animate-in slide-in-from-top-1 duration-200">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[10px] font-bold uppercase text-muted-foreground">Código CIE-10</label>
-                      <Input value={cie10Code} onChange={(e) => { setCie10Code(e.target.value); setIsDirty(true); }} placeholder="Ej: F41.1" className="mt-1 h-9 rounded-xl text-xs" />
+                      <Input
+                        value={cie10Code}
+                        onChange={(e) => {
+                          setCie10Code(e.target.value);
+                          setIsDirty(true);
+                        }}
+                        placeholder="Ej: F41.1"
+                        className="mt-1 h-9 rounded-xl text-xs bg-background"
+                      />
                     </div>
                     <div>
                       <label className="text-[10px] font-bold uppercase text-muted-foreground">Descripción CIE-10</label>
-                      <Input value={cie10Description} onChange={(e) => { setCie10Description(e.target.value); setIsDirty(true); }} placeholder="Ej: Trastorno de ansiedad generalizada" className="mt-1 h-9 rounded-xl text-xs" />
+                      <Input
+                        value={cie10Description}
+                        onChange={(e) => {
+                          setCie10Description(e.target.value);
+                          setIsDirty(true);
+                        }}
+                        placeholder="Ej: Trastorno de ansiedad generalizada"
+                        className="mt-1 h-9 rounded-xl text-xs bg-background"
+                      />
                     </div>
                   </div>
                   <div>
                     <label className="text-[10px] font-bold uppercase text-muted-foreground">Diagnóstico Principal</label>
-                    <Input value={diagnosticoPrincipal} onChange={(e) => { setDiagnosticoPrincipal(e.target.value); setIsDirty(true); }} placeholder="Diagnóstico clínico principal" className="mt-1 h-9 rounded-xl text-xs" />
+                    <Input
+                      value={diagnosticoPrincipal}
+                      onChange={(e) => {
+                        setDiagnosticoPrincipal(e.target.value);
+                        setIsDirty(true);
+                      }}
+                      placeholder="Diagnóstico clínico principal"
+                      className="mt-1 h-9 rounded-xl text-xs bg-background"
+                    />
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Main Editor */}
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 mb-2 block">Reporte Clínico</label>
-              {isRefiningAI && (
-                <div className="flex items-center gap-2 text-xs text-primary font-semibold mb-2 animate-pulse">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> La IA está refinando tu nota...
+            {/* Accordion: Estado de Ánimo / Evolución */}
+            <div className="border border-border/80 rounded-2xl bg-card overflow-hidden transition-all">
+              <button
+                type="button"
+                onClick={() => setShowMoodPanel(!showMoodPanel)}
+                className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-muted/40 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Smile className="h-4 w-4 text-amber-500" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Estado de Ánimo / Evolución
+                  </span>
+                  {moodRating !== null && (
+                    <Badge variant="outline" className="text-[10px] ml-1 bg-amber-500/10 text-amber-600 border-amber-500/20">
+                      {moodRating}%
+                    </Badge>
+                  )}
+                </div>
+                {showMoodPanel ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+              </button>
+              {showMoodPanel && (
+                <div className="p-4 border-t border-border/60 bg-muted/20 space-y-4 animate-in slide-in-from-top-1 duration-200">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-muted-foreground">Calificación de Ánimo</span>
+                      <span className="font-bold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                        {moodRating ?? 50}%
+                      </span>
+                    </div>
+                    <Slider
+                      value={[moodRating ?? 50]}
+                      onValueChange={(val) => {
+                        setMoodRating(val[0]);
+                        setIsDirty(true);
+                      }}
+                      max={100}
+                      step={1}
+                      className="py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground">Notas de Ánimo / Evolución</label>
+                    <Input
+                      value={moodNotes}
+                      onChange={(e) => {
+                        setMoodNotes(e.target.value);
+                        setIsDirty(true);
+                      }}
+                      placeholder="Ej: Tranquilo, motivado, mayor energía..."
+                      className="mt-1 h-9 rounded-xl text-xs bg-background"
+                    />
+                  </div>
                 </div>
               )}
+            </div>
+
+            {/* ── Section: Temas y Notas Clínicas de la Sesión (Agenda TCC) ── */}
+            <div className="border border-border/80 rounded-2xl bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-800 dark:text-slate-200">
+                    Temas y Nota Clínica (Agenda)
+                  </span>
+                  <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                    {agendaItems.length} {agendaItems.length === 1 ? 'tema' : 'temas'}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  {agendaItems.length > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-[10px] font-bold text-primary hover:bg-primary/10 gap-1 rounded-xl"
+                      onClick={handleSyncAgendaToEditor}
+                      title="Copiar contenido de los temas al editor de Reporte Clínico"
+                    >
+                      <Copy className="h-3 w-3" /> Compilar a Reporte
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[10px] font-bold border-primary/20 text-primary hover:bg-primary/5 gap-1 rounded-xl"
+                    onClick={handleAddAgendaItem}
+                  >
+                    <Plus className="h-3 w-3" /> Agregar Tema
+                  </Button>
+                </div>
+              </div>
+
+              {agendaItems.length === 0 ? (
+                <div className="text-center py-6 px-4 border-2 border-dashed border-border/60 rounded-xl bg-muted/20">
+                  <p className="text-xs text-muted-foreground font-medium mb-3">
+                    No hay temas estructurados en esta sesión. Puedes agregarlos o escribir libremente en el Reporte Clínico.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="zen"
+                    className="h-8 text-xs font-bold gap-1.5"
+                    onClick={handleAddAgendaItem}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Agregar Tema Estructurado (TCC)
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {agendaItems.map((item, idx) => (
+                    <div
+                      key={item.id || idx}
+                      className="p-4 rounded-xl border border-border/80 bg-slate-50/60 dark:bg-slate-900/30 space-y-3 relative group"
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-border/40">
+                        <span className="text-xs font-bold text-primary flex items-center gap-2">
+                          <span className="h-5 w-5 rounded-md bg-primary/10 flex items-center justify-center text-[11px] font-black text-primary">
+                            {idx + 1}
+                          </span>
+                          {item.topic ? item.topic : `Tema #${idx + 1}`}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                          onClick={() => handleRemoveAgendaItem(idx)}
+                          title="Eliminar tema"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-muted-foreground">Tema / Problema</label>
+                          <Input
+                            value={item.topic || ''}
+                            onChange={(e) => handleUpdateAgendaItem(idx, 'topic', e.target.value)}
+                            placeholder="Ej: Laboral, Duelo, Pareja..."
+                            className="mt-1 h-9 rounded-xl text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-muted-foreground">Situación</label>
+                          <Input
+                            value={item.situation || ''}
+                            onChange={(e) => handleUpdateAgendaItem(idx, 'situation', e.target.value)}
+                            placeholder="¿Qué ocurrió exactamente?"
+                            className="mt-1 h-9 rounded-xl text-xs bg-background"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-muted-foreground">Emociones</label>
+                          <Input
+                            value={item.emotions || ''}
+                            onChange={(e) => handleUpdateAgendaItem(idx, 'emotions', e.target.value)}
+                            placeholder="Ej: Ansiedad (8/10), Frustración..."
+                            className="mt-1 h-9 rounded-xl text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-muted-foreground">Intervenciones / Técnicas</label>
+                          <Textarea
+                            value={item.interventions || ''}
+                            onChange={(e) => handleUpdateAgendaItem(idx, 'interventions', e.target.value)}
+                            placeholder="Técnicas aplicadas (ej: Reestructuración cognitiva, Psicoeducación...)"
+                            className="mt-1 min-h-[60px] rounded-xl text-xs bg-background resize-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-muted-foreground">
+                          Pensamientos / Impresión Clínica
+                        </label>
+                        <Textarea
+                          value={item.thoughts || ''}
+                          onChange={(e) => handleUpdateAgendaItem(idx, 'thoughts', e.target.value)}
+                          placeholder="Cogniciones automáticas, análisis o notas clínicas del tema..."
+                          className="mt-1 min-h-[70px] rounded-xl text-xs bg-background leading-relaxed"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Section: Reporte Clínico Narrativo / Resumen SOAP (MiniEditor) ── */}
+            <div className="border border-border/80 rounded-2xl bg-card p-5 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black uppercase tracking-widest text-slate-800 dark:text-slate-200 block">
+                  Reporte Clínico (Texto Narrativo / Resumen SOAP)
+                </label>
+                {agendaItems.length > 0 && !editorContent && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-[10px] font-bold text-primary hover:bg-primary/10 gap-1 rounded-xl"
+                    onClick={handleSyncAgendaToEditor}
+                  >
+                    <Copy className="h-3 w-3" /> Traer texto de los temas
+                  </Button>
+                )}
+              </div>
+
+              {isRefiningAI && (
+                <div className="flex items-center gap-2 text-xs text-primary font-semibold mb-2 animate-pulse">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> La IA está refinando tu reporte...
+                </div>
+              )}
+
               {diffParts ? (
                 <div className="space-y-4">
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-2xl p-4">
@@ -826,48 +1274,188 @@ export default function NoteEditorSheet({
                     </h4>
                     <div className="text-sm leading-relaxed space-x-1">
                       {diffParts.map((part) => (
-                        <span key={part.id} className={part.type === 'added' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 px-0.5 rounded' : part.type === 'removed' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 line-through px-0.5 rounded opacity-70' : ''}>
+                        <span
+                          key={part.id}
+                          className={
+                            part.type === 'added'
+                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 px-0.5 rounded'
+                              : part.type === 'removed'
+                              ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 line-through px-0.5 rounded opacity-70'
+                              : ''
+                          }
+                        >
                           {part.text}{' '}
                         </span>
                       ))}
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end">
-                    <Button size="sm" variant="outline" className="rounded-xl text-xs" onClick={handleRejectDiff}>Rechazar</Button>
-                    <Button size="sm" variant="zen" className="rounded-xl text-xs" onClick={handleAcceptDiff}>Aceptar cambios</Button>
+                    <Button size="sm" variant="outline" className="rounded-xl text-xs" onClick={handleRejectAllDiff}>
+                      Rechazar
+                    </Button>
+                    <Button size="sm" variant="zen" className="rounded-xl text-xs" onClick={handleAcceptAllDiff}>
+                      Aceptar cambios
+                    </Button>
                   </div>
                 </div>
               ) : (
-                <MiniEditor content={editorContent} onChange={(val) => { setEditorContent(val); setIsDirty(true); }} />
+                <MiniEditor
+                  content={editorContent}
+                  onChange={(val) => {
+                    setEditorContent(val);
+                    setIsDirty(true);
+                  }}
+                />
               )}
             </div>
 
-            {/* Bridge Notes */}
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 mb-2 block">Notas Puente / Bullet Points</label>
-              <Textarea
-                value={bulletPoints}
-                onChange={(e) => { setBulletPoints(e.target.value); setIsDirty(true); }}
-                placeholder="Puntos clave a retomar en la siguiente sesión..."
-                className="min-h-[100px] rounded-2xl text-sm border-border/80 resize-none"
-              />
+            {/* ── Section: Tareas para el Hogar y Notas Puente (Bridge) ── */}
+            <div className="border border-border/80 rounded-2xl bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                <div className="flex items-center gap-2">
+                  <ListChecks className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-800 dark:text-slate-200">
+                    Tareas para el Hogar y Notas Puente
+                  </span>
+                  {bridgeItems.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                      {bridgeItems.filter((i) => i.completed).length}/{bridgeItems.length} hechas
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              {/* Checklist de tareas */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground block">
+                  Tareas Acordadas con el Paciente
+                </label>
+                {bridgeItems.length > 0 && (
+                  <div className="space-y-1.5 mb-3">
+                    {bridgeItems.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 p-2 rounded-xl border border-border/60 bg-muted/20 text-xs"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBridgeItem(index)}
+                          className="text-primary hover:text-primary/80 transition-colors"
+                        >
+                          {item.completed ? (
+                            <CheckSquare className="h-4 w-4 text-emerald-600" />
+                          ) : (
+                            <Square className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </button>
+                        <span className={cn('flex-1 truncate', item.completed && 'line-through text-muted-foreground')}>
+                          {item.text}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 text-muted-foreground hover:text-destructive rounded-md"
+                          onClick={() => handleRemoveBridgeItem(index)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    value={newBridgeItemText}
+                    onChange={(e) => setNewBridgeItemText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddBridgeItem();
+                      }
+                    }}
+                    placeholder="Nueva tarea acordada (ej: Registro de pensamientos...)"
+                    className="h-9 rounded-xl text-xs bg-background"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-9 px-3 text-xs rounded-xl border-primary/20 text-primary font-bold"
+                    onClick={handleAddBridgeItem}
+                    disabled={!newBridgeItemText.trim()}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Agregar
+                  </Button>
+                </div>
+              </div>
+
+              {/* Textarea notas de puente */}
+              <div>
+                <label className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">
+                  Notas de Continuidad / Puntos para la Próxima Sesión
+                </label>
+                <Textarea
+                  value={bulletPoints}
+                  onChange={(e) => {
+                    setBulletPoints(e.target.value);
+                    setIsDirty(true);
+                  }}
+                  placeholder="Puntos clave a retomar en la siguiente sesión..."
+                  className="min-h-[90px] rounded-2xl text-xs border-border/80 resize-none bg-background leading-relaxed"
+                />
+              </div>
             </div>
           </div>
         ) : (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="bg-gradient-to-r from-violet-500/5 via-indigo-500/5 to-primary/5 border border-primary/10 p-6 rounded-2xl text-center space-y-4">
-              <div className="inline-flex p-3 rounded-2xl bg-primary/10"><Sparkles className="h-8 w-8 text-primary" /></div>
+              <div className="inline-flex p-3 rounded-2xl bg-primary/10">
+                <Sparkles className="h-8 w-8 text-primary" />
+              </div>
               <h3 className="text-lg font-bold">Asistente de IA para Notas</h3>
-              <p className="text-sm text-muted-foreground max-w-md mx-auto">Dicta o escribe puntos clave de la sesión y la IA generará un reporte clínico estructurado.</p>
-              <Textarea value={bulletPoints} onChange={(e) => { setBulletPoints(e.target.value); setIsDirty(true); }} placeholder="Escribe los puntos clave de la sesión aquí..." className="min-h-[150px] rounded-2xl text-sm" />
-              <Button variant="zen" className="gap-2" onClick={handleGenerateWithAI} disabled={isProcessingAI || !bulletPoints.trim()}>
-                {isProcessingAI ? (<><Loader2 className="h-4 w-4 animate-spin" /> Generando...</>) : (<><Sparkles className="h-4 w-4" /> Generar Nota con IA</>)}
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                Dicta o escribe puntos clave de la sesión y la IA generará un reporte clínico estructurado.
+              </p>
+              <Textarea
+                value={bulletPoints}
+                onChange={(e) => {
+                  setBulletPoints(e.target.value);
+                  setIsDirty(true);
+                }}
+                placeholder="Escribe los puntos clave de la sesión aquí..."
+                className="min-h-[150px] rounded-2xl text-sm bg-background"
+              />
+              <Button
+                variant="zen"
+                className="gap-2"
+                onClick={handleGenerateAI}
+                disabled={isProcessingAI || !bulletPoints.trim()}
+              >
+                {isProcessingAI ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Generando...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" /> Generar Nota con IA
+                  </>
+                )}
               </Button>
             </div>
             {editorContent && (
               <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 mb-2 block">Resultado Generado</label>
-                <MiniEditor content={editorContent} onChange={(val) => { setEditorContent(val); setIsDirty(true); }} />
+                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 mb-2 block">
+                  Resultado Generado
+                </label>
+                <MiniEditor
+                  content={editorContent}
+                  onChange={(val) => {
+                    setEditorContent(val);
+                    setIsDirty(true);
+                  }}
+                />
               </div>
             )}
           </div>
@@ -877,15 +1465,45 @@ export default function NoteEditorSheet({
       {/* Footer */}
       <div className="border-t border-border/80 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky bottom-0 z-10">
         <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
-          {autosaveStatus === 'saving' && (<><span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" /><span>Guardando...</span></>)}
-          {autosaveStatus === 'saved' && (<><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /><span>Borrador guardado</span></>)}
+          {autosaveStatus === 'saving' && (
+            <>
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>Guardando...</span>
+            </>
+          )}
+          {autosaveStatus === 'saved' && (
+            <>
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span>Borrador guardado</span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="ghost" onClick={onClose} disabled={isSaving} className="rounded-xl h-10 px-5 text-slate-600 font-bold hover:bg-slate-100 transition-colors">
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-xl h-10 px-5 text-slate-600 font-bold hover:bg-slate-100 transition-colors"
+          >
             Cancelar
           </Button>
-          <Button variant="zen" onClick={handleSave} disabled={isSaving || isProcessingAI || !!diffParts} className="rounded-xl h-10 px-6 font-bold shadow-md shadow-primary/15 transition-all">
-            {isSaving ? (<><Loader2 className="h-4 w-4 animate-spin mr-2" />Guardando...</>) : (<><Save className="h-4 w-4 mr-2" />Guardar Cambios</>)}
+          <Button
+            variant="zen"
+            onClick={handleSave}
+            disabled={isSaving || isProcessingAI || !!diffParts}
+            className="rounded-xl h-10 px-6 font-bold shadow-md shadow-primary/15 transition-all"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Guardando...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Guardar Cambios
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -904,7 +1522,7 @@ export default function NoteEditorSheet({
     );
   }
 
-  // ── Sheet mode: render as overlay (fallback for non-patient pages) ──
+  // ── Sheet mode: render as overlay ──
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full sm:max-w-2xl flex flex-col h-full bg-background border-l border-border p-0 shadow-elevated">
@@ -916,4 +1534,3 @@ export default function NoteEditorSheet({
     </Sheet>
   );
 }
-

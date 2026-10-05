@@ -46,6 +46,35 @@ import MiniEditor from '@/components/ui/MiniEditor';
 import DOMPurify from 'dompurify';
 import { useNotes, useNoteTemplates, useProfessionalProfile, useMutateNotes } from '@/hooks/useNotes';
 
+const getNoteFullDisplayHtml = (note: any): string => {
+  if (!note) return 'Sin reporte detallado registrado.';
+  if (note.transcript_summary) return note.transcript_summary;
+  if (!Array.isArray(note.agenda) || note.agenda.length === 0) return 'Sin reporte detallado registrado.';
+  
+  if (
+    note.agenda.length === 1 &&
+    (!note.agenda[0].topic || ['Reporte Clínico', 'Consulta IA', 'General', 'SOAP'].includes(note.agenda[0].topic)) &&
+    !note.agenda[0].interventions &&
+    !note.agenda[0].situation
+  ) {
+    return note.agenda[0].thoughts || 'Sin reporte detallado registrado.';
+  }
+
+  return note.agenda
+    .map((item: any, idx: number) => {
+      const parts: string[] = [];
+      const title = item.topic ? `Tema ${idx + 1}: ${item.topic}` : `Tema ${idx + 1}`;
+      parts.push(`<h4 style="font-weight: 700; font-size: 1.05rem; margin-top: 0.75rem; color: #0f766e;">${title}</h4>`);
+      if (item.situation) parts.push(`<p><strong>Situación:</strong> ${item.situation}</p>`);
+      if (item.emotions) parts.push(`<p><strong>Emociones:</strong> ${item.emotions}</p>`);
+      if (item.interventions) parts.push(`<p><strong>Intervenciones:</strong> ${item.interventions}</p>`);
+      if (item.thoughts) parts.push(`<p><strong>Imp. Clínica:</strong> ${item.thoughts}</p>`);
+      if (item.notes) parts.push(`<p><strong>Notas:</strong> ${item.notes}</p>`);
+      return parts.join('');
+    })
+    .join('<hr style="margin: 1.25rem 0; opacity: 0.2;" />');
+};
+
 const Notes = () => {
   const { organization } = useOrganization();
   const [searchParams] = useSearchParams();
@@ -555,7 +584,7 @@ const Notes = () => {
                                 size="sm"
                                 className="h-10 px-4 rounded-xl border-primary/20 hover:bg-primary/5 text-primary gap-2 transition-all font-bold"
                                 onClick={() => {
-                                  setEditingText(selectedNoteData.agenda?.[0]?.thoughts || '');
+                                  setEditingText(getNoteFullDisplayHtml(selectedNoteData));
                                   setIsEditing(true);
                                   setConfirmDelete(false);
                                 }}
@@ -663,7 +692,7 @@ const Notes = () => {
                               <div 
                                 className="text-[15px] bg-transparent whitespace-pre-wrap leading-relaxed text-slate-800 dark:text-slate-200 prose prose-sm max-w-none prose-headings:text-primary prose-a:text-primary prose-p:mb-4"
                                 dangerouslySetInnerHTML={{ 
-                                  __html: DOMPurify.sanitize(selectedNoteData.agenda?.[0]?.thoughts || 'Sin reporte detallado registrado.') 
+                                  __html: DOMPurify.sanitize(getNoteFullDisplayHtml(selectedNoteData)) 
                                 }}
                               />
 

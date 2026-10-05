@@ -21,9 +21,7 @@ export function usePatientDetails(patientId: string | null, organizationId: stri
         // 1. Session Notes
         supabase
           .from('session_notes')
-          .select(
-            'id, date, session_number, agenda, mood, created_at, cie10_code, cie10_description, diagnostico_principal, bridge, transcript_summary'
-          )
+          .select('*')
           .eq('patient_id', patientId)
           .eq('organization_id', organizationId)
           .is('deleted_at', null)
