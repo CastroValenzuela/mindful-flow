@@ -81,8 +81,17 @@ export interface SessionNote {
     cie10_description?: string;
     diagnostico_principal?: string;
     transcript_summary?: string;
-    audio_url?: string;
     mental_status?: Record<string, string[]>;
+    content?: {
+        note_type?: 'structured' | 'free_text' | 'handwritten';
+        topic?: string;
+        text?: string;
+        drawing_data_url?: string;
+        strokes?: any[];
+        paper_type?: 'ruled' | 'grid' | 'plain';
+        [key: string]: any;
+    };
+    template_id?: string;
     created_at?: string;
     deleted_at?: string | null;
 }

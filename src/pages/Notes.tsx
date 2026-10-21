@@ -29,12 +29,15 @@ import {
   Activity,
   Download,
   Sparkles,
-  Settings
+  Settings,
+  Pen
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import StructuredNoteForm from '@/components/notes/StructuredNoteForm';
+import HandwrittenNoteCanvas from '@/components/notes/HandwrittenNoteCanvas';
+import FreeTextNoteForm from '@/components/notes/FreeTextNoteForm';
 import PatientAutocomplete from '@/components/patients/PatientAutocomplete';
 import { toast } from 'sonner';
 import { useOrganization } from '@/hooks/useOrganization';
@@ -48,12 +51,15 @@ import { useNotes, useNoteTemplates, useProfessionalProfile, useMutateNotes } fr
 
 const getNoteFullDisplayHtml = (note: any): string => {
   if (!note) return 'Sin reporte detallado registrado.';
+  if (note.content?.note_type === 'free_text' && note.content?.text) {
+    return note.content.text;
+  }
   if (note.transcript_summary) return note.transcript_summary;
   if (!Array.isArray(note.agenda) || note.agenda.length === 0) return 'Sin reporte detallado registrado.';
   
   if (
     note.agenda.length === 1 &&
-    (!note.agenda[0].topic || ['Reporte Clínico', 'Consulta IA', 'General', 'SOAP'].includes(note.agenda[0].topic)) &&
+    (!note.agenda[0].topic || ['Reporte Clínico', 'Consulta IA', 'General', 'SOAP', 'Nota Libre'].includes(note.agenda[0].topic)) &&
     !note.agenda[0].interventions &&
     !note.agenda[0].situation
   ) {
@@ -96,6 +102,8 @@ const Notes = () => {
   const [isExportingNote, setIsExportingNote] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [isDictating, setIsDictating] = useState(false);
+  const [creationMode, setCreationMode] = useState<'selector' | 'structured' | 'free_text' | 'handwritten'>('selector');
+  const [editingHandwrittenNote, setEditingHandwrittenNote] = useState<any | null>(null);
 
   useEffect(() => {
     const pId = searchParams.get('patientId');
@@ -212,6 +220,21 @@ const Notes = () => {
 
   const handleUpdateReport = async () => {
     if (!selectedNote || !selectedNoteData) return;
+
+    if (selectedNoteData.content?.note_type === 'free_text') {
+      updateNote.mutate({
+        noteId: selectedNote,
+        payload: {
+          content: { ...selectedNoteData.content, text: editingText },
+          transcript_summary: editingText,
+          agenda: [{ id: 'free-text-1', topic: selectedNoteData.content?.topic || 'Nota Libre', thoughts: editingText }]
+        }
+      }, {
+        onSuccess: () => setIsEditing(false)
+      });
+      return;
+    }
+
     const updatedAgenda = [...(selectedNoteData.agenda || [])];
     if (updatedAgenda.length === 0) {
       updatedAgenda.push({ id: '', topic: 'Reporte', situation: '', thoughts: editingText, emotions: '', interventions: '' });
@@ -221,6 +244,102 @@ const Notes = () => {
     
     updateNote.mutate({ noteId: selectedNote, payload: { agenda: updatedAgenda } }, {
       onSuccess: () => setIsEditing(false)
+    });
+  };
+
+  const handleSaveHandwrittenNote = async (data: any) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('No hay sesión activa');
+      return;
+    }
+
+    const payload = {
+      user_id: user.id,
+      patient_id: data.patientId || selectedPatient || null,
+      patient_name: data.patientName || selectedPatientName || 'Sin paciente',
+      date: data.date,
+      session_number: Number(data.sessionNumber) || 1,
+      content: {
+        note_type: 'handwritten',
+        topic: data.topic,
+        drawing_data_url: data.drawingDataUrl,
+        strokes: data.strokes,
+        paper_type: data.paperType,
+        notes: data.notes,
+      },
+      cie10_code: data.cie10Code || null,
+      cie10_description: data.cie10Description || null,
+      transcript_summary: data.notes || 'Anotaciones manuscritas tomadas en tableta/iPad',
+      agenda: [{
+        id: 'handwritten-1',
+        topic: data.topic || 'Anotación Manuscrita (Touch)',
+        thoughts: data.notes || 'Anotaciones manuscritas de sesión',
+      }],
+      organization_id: organization?.id,
+    };
+
+    if (editingHandwrittenNote?.id) {
+      updateNote.mutate({
+        noteId: editingHandwrittenNote.id,
+        payload,
+      }, {
+        onSuccess: () => {
+          setIsCreatingNote(false);
+          setEditingHandwrittenNote(null);
+          setCreationMode('selector');
+        }
+      });
+    } else {
+      createNote.mutate(payload, {
+        onSuccess: () => {
+          setIsCreatingNote(false);
+          setCreationMode('selector');
+          if (searchParams.get('newNote') === 'true' && selectedPatient) {
+            navigate('/patients', { state: { selectPatientId: selectedPatient } });
+          }
+        }
+      });
+    }
+  };
+
+  const handleSaveFreeTextNote = async (data: any) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('No hay sesión activa');
+      return;
+    }
+
+    const payload = {
+      user_id: user.id,
+      patient_id: data.patientId || selectedPatient || null,
+      patient_name: data.patientName || selectedPatientName || 'Sin paciente',
+      date: data.date,
+      session_number: Number(data.sessionNumber) || 1,
+      content: {
+        note_type: 'free_text',
+        topic: data.topic,
+        text: data.text,
+      },
+      cie10_code: data.cie10Code || null,
+      cie10_description: data.cie10Description || null,
+      transcript_summary: data.text,
+      agenda: [{
+        id: 'free-text-1',
+        topic: data.topic || 'Nota Libre',
+        thoughts: data.text,
+      }],
+      organization_id: organization?.id,
+    };
+
+    createNote.mutate(payload, {
+      onSuccess: () => {
+        setIsCreatingNote(false);
+        setCreationMode('selector');
+        if (searchParams.get('newNote') === 'true' && selectedPatient) {
+          navigate('/patients', { state: { selectPatientId: selectedPatient } });
+        }
+      }
     });
   };
 
@@ -273,6 +392,118 @@ const Notes = () => {
       );
     }
 
+    if (creationMode === 'handwritten') {
+      return (
+        <Layout>
+          <FeatureGate feature="core_notes">
+            <div className="space-y-6 animate-fade-in">
+              <HandwrittenNoteCanvas
+                initialStrokes={editingHandwrittenNote?.content?.strokes || []}
+                initialPaperType={editingHandwrittenNote?.content?.paper_type || 'ruled'}
+                initialTopic={editingHandwrittenNote?.content?.topic || ''}
+                initialPatientId={editingHandwrittenNote?.patient_id || selectedPatient || undefined}
+                initialPatientName={editingHandwrittenNote?.patient_name || selectedPatientName || undefined}
+                initialDate={editingHandwrittenNote?.date || undefined}
+                initialSessionNumber={editingHandwrittenNote?.session_number || (selectedPatient ? notes.filter((n: any) => n.patient_id === selectedPatient).length + 1 : 1)}
+                onCancel={() => {
+                  setIsCreatingNote(false);
+                  setCreationMode('selector');
+                  setEditingHandwrittenNote(null);
+                  if (searchParams.get('newNote') === 'true' && selectedPatient) {
+                    navigate('/patients', { state: { selectPatientId: selectedPatient } });
+                  }
+                }}
+                onSave={handleSaveHandwrittenNote}
+              />
+            </div>
+          </FeatureGate>
+        </Layout>
+      );
+    }
+
+    if (creationMode === 'free_text') {
+      return (
+        <Layout>
+          <FeatureGate feature="core_notes">
+            <div className="space-y-6 animate-fade-in">
+              <FreeTextNoteForm
+                initialPatientId={selectedPatient || undefined}
+                initialPatientName={selectedPatientName || undefined}
+                initialSessionNumber={selectedPatient ? notes.filter((n: any) => n.patient_id === selectedPatient).length + 1 : 1}
+                onCancel={() => {
+                  setIsCreatingNote(false);
+                  setCreationMode('selector');
+                  if (searchParams.get('newNote') === 'true' && selectedPatient) {
+                    navigate('/patients', { state: { selectPatientId: selectedPatient } });
+                  }
+                }}
+                onSave={handleSaveFreeTextNote}
+              />
+            </div>
+          </FeatureGate>
+        </Layout>
+      );
+    }
+
+    if (creationMode === 'structured' && selectedTemplateId) {
+      return (
+        <Layout>
+          <FeatureGate feature="core_notes">
+            <div className="space-y-6 animate-fade-in">
+              <StructuredNoteForm
+                templateId={selectedTemplateId}
+                initialPatientId={selectedPatient || undefined}
+                initialPatientName={selectedPatientName || undefined}
+                onCancel={() => {
+                  setIsCreatingNote(false);
+                  setSelectedTemplateId(null);
+                  setCreationMode('selector');
+                  if (searchParams.get('newNote') === 'true' && selectedPatient) {
+                    navigate('/patients', { state: { selectPatientId: selectedPatient } });
+                  }
+                }}
+                onSave={async (noteData) => {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  const { error } = await supabase
+                    .from('session_notes')
+                    .insert({
+                      user_id: user?.id,
+                      patient_id: noteData.patientId || null,
+                      patient_name: noteData.patientName || 'Sin paciente',
+                      date: noteData.date,
+                      session_number: parseInt(noteData.sessionNumber) || 1,
+                      mood: noteData.mood,
+                      bridge: noteData.bridge,
+                      agenda: noteData.agenda,
+                      beliefs: noteData.beliefs,
+                      action_plan: noteData.actionPlan,
+                      cie10_code: noteData.cie10Code || null,
+                      cie10_description: noteData.cie10Description || null,
+                      diagnostico_principal: noteData.diagnosticoPrincipal || null,
+                      mental_status: noteData.mentalStatus || null,
+                      content: noteData,
+                      organization_id: organization?.id,
+                      template_id: selectedTemplateId
+                    });
+                  if (error) {
+                    toast.error('Error al guardar: ' + error.message);
+                  } else {
+                    toast.success('Nota guardada con éxito');
+                    setIsCreatingNote(false);
+                    setSelectedTemplateId(null);
+                    setCreationMode('selector');
+                    if (searchParams.get('newNote') === 'true' && selectedPatient) {
+                      navigate('/patients', { state: { selectPatientId: selectedPatient } });
+                    }
+                  }
+                }}
+              />
+            </div>
+          </FeatureGate>
+        </Layout>
+      );
+    }
+
     return (
       <Layout>
         <FeatureGate feature="core_notes">
@@ -281,155 +512,173 @@ const Notes = () => {
             <Button variant="ghost" size="icon" onClick={() => {
               setIsCreatingNote(false);
               setSelectedTemplateId(null);
+              setCreationMode('selector');
+              setEditingHandwrittenNote(null);
               if (searchParams.get('newNote') === 'true' && selectedPatient) {
                 navigate('/patients', { state: { selectPatientId: selectedPatient } });
               }
             }}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <h1 className="text-2xl font-black text-primary tracking-tight">Nueva Nota Clínica</h1>
+            <div>
+              <h1 className="text-2xl font-black text-primary tracking-tight">Nueva Nota Clínica</h1>
+              <p className="text-xs text-muted-foreground font-medium">Elige la modalidad que mejor se adapte a tu consulta de hoy</p>
+            </div>
           </div>
 
-          {!selectedTemplateId ? (
-            <div className="space-y-6">
+          <div className="space-y-6">
+            {/* Top row: 3 Primary quick options (AI Voice, Free Text, Tablet Handwritten) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              
+              {/* Option 1: AI Voice Dictation */}
               <button 
                 onClick={() => setIsDictating(true)}
-                className="w-full relative overflow-hidden group rounded-2xl bg-gradient-to-r from-primary to-emerald-600 p-8 text-left transition-all hover:shadow-lg hover:shadow-primary/30 hover:scale-[1.01]"
+                className="relative overflow-hidden group rounded-2xl bg-gradient-to-br from-primary to-emerald-600 p-6 text-left transition-all hover:shadow-xl hover:shadow-primary/20 hover:scale-[1.01] flex flex-col justify-between"
               >
-                <div className="absolute top-0 right-0 p-8 opacity-20 transform translate-x-4 -translate-y-4 group-hover:scale-110 transition-transform duration-700">
-                  <Brain className="w-32 h-32 text-white" />
+                <div className="absolute top-0 right-0 p-6 opacity-20 transform translate-x-3 -translate-y-3 group-hover:scale-110 transition-transform duration-500">
+                  <Brain className="w-24 h-24 text-white" />
                 </div>
-                <div className="relative z-10">
-                  <div className="inline-flex items-center gap-2 bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest mb-4 backdrop-blur-sm">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Nuevo
+                <div>
+                  <div className="inline-flex items-center gap-1.5 bg-white/20 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mb-3 backdrop-blur-sm">
+                    <Sparkles className="w-3 h-3" />
+                    Inteligente
                   </div>
-                  <h3 className="text-2xl font-black text-white tracking-tight mb-2">Redactar con Inteligencia Artificial</h3>
-                  <p className="text-white/80 max-w-md leading-relaxed text-sm">
-                    Solo presiona grabar y habla sobre la sesión. Saudade extraerá, estructurará y redactará la nota SOAP automáticamente.
+                  <h3 className="text-lg font-black text-white tracking-tight mb-1.5">Redactar con IA</h3>
+                  <p className="text-white/80 leading-relaxed text-xs">
+                    Dicta o habla sobre la sesión. El sistema estructura y redacta la nota automáticamente.
                   </p>
+                </div>
+                <div className="mt-6 flex items-center gap-1.5 text-xs font-bold text-white">
+                  <span>Iniciar dictado</span>
+                  <ChevronRight className="h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
                 </div>
               </button>
 
-              <Card className="border-border shadow-sm overflow-hidden">
-                <CardHeader className="bg-muted/10 border-b border-border/50 flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg">Selecciona una Plantilla</CardTitle>
-                    <CardDescription>O elige redactar manualmente con una estructura predefinida</CardDescription>
+              {/* Option 2: Free Text Editor */}
+              <button 
+                onClick={() => setCreationMode('free_text')}
+                className="relative overflow-hidden group rounded-2xl bg-card border-2 border-border p-6 text-left transition-all hover:border-blue-500 hover:shadow-xl hover:shadow-blue-500/10 hover:scale-[1.01] flex flex-col justify-between"
+              >
+                <div className="absolute top-0 right-0 p-6 opacity-10 text-blue-600 transform translate-x-3 -translate-y-3 group-hover:scale-110 transition-transform duration-500">
+                  <FileText className="w-24 h-24" />
+                </div>
+                <div>
+                  <div className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mb-3">
+                    <FileText className="w-3 h-3" />
+                    Libre & Flexible
                   </div>
-                </CardHeader>
-                <CardContent className="p-6">
-                {isLoadingTemplates ? (
-                  <div className="flex flex-col items-center justify-center py-20 gap-3">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary/30" />
-                    <p className="text-xs text-muted-foreground font-medium">Cargando plantillas...</p>
+                  <h3 className="text-lg font-black text-foreground tracking-tight mb-1.5">Nota de Texto Libre</h3>
+                  <p className="text-muted-foreground leading-relaxed text-xs">
+                    Editor abierto para escribir a tu ritmo con negritas, listas y títulos, sin casillas rígidas.
+                  </p>
+                </div>
+                <div className="mt-6 flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400">
+                  <span>Abrir editor libre</span>
+                  <ChevronRight className="h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
+                </div>
+              </button>
+
+              {/* Option 3: Handwritten Touch / Tablet */}
+              <button 
+                onClick={() => setCreationMode('handwritten')}
+                className="relative overflow-hidden group rounded-2xl bg-card border-2 border-border p-6 text-left transition-all hover:border-violet-500 hover:shadow-xl hover:shadow-violet-500/10 hover:scale-[1.01] flex flex-col justify-between"
+              >
+                <div className="absolute top-0 right-0 p-6 opacity-10 text-violet-600 transform translate-x-3 -translate-y-3 group-hover:scale-110 transition-transform duration-500">
+                  <Pen className="w-24 h-24" />
+                </div>
+                <div>
+                  <div className="inline-flex items-center gap-1.5 bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mb-3">
+                    <Pen className="w-3 h-3" />
+                    iPad & Tablet Touch
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {noteTemplates.map((template: any) => (
-                      <div
-                        key={template.id}
-                        className="group flex flex-col p-5 rounded-2xl border border-border bg-card text-left transition-all hover:border-primary/40 hover:shadow-md"
-                      >
-                        <div className="flex justify-between items-start mb-4">
-                          <div className={cn(
-                            "h-10 w-10 rounded-xl flex items-center justify-center transition-colors",
-                            template.is_system ? "bg-primary/5 text-primary" : "bg-violet-50 text-violet-600"
-                          )}>
-                            <FileText className="h-5 w-5" />
-                          </div>
-                          
-                          <Badge variant="outline" className={cn(
-                            "text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 border",
-                            template.is_system ? "bg-primary/5 text-primary border-primary/20" : "bg-violet-50 text-violet-600 border-violet-200"
-                          )}>
-                            {template.is_system ? 'Sistema' : 'Personalizada'}
-                          </Badge>
-                        </div>
+                  <h3 className="text-lg font-black text-foreground tracking-tight mb-1.5">Nota Manuscrita</h3>
+                  <p className="text-muted-foreground leading-relaxed text-xs">
+                    Toma apuntes o dibuja esquemas con Apple Pencil, Stylus o con el dedo sobre un lienzo táctil.
+                  </p>
+                </div>
+                <div className="mt-6 flex items-center gap-1.5 text-xs font-bold text-violet-600 dark:text-violet-400">
+                  <span>Abrir lienzo táctil</span>
+                  <ChevronRight className="h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
+                </div>
+              </button>
 
-                        <h4 className="font-bold text-sm mb-1.5">{template.name}</h4>
-                        <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mb-6 flex-1">
-                          {template.description}
-                        </p>
-
-                        <div className="mt-auto pt-4 flex flex-row items-center gap-2 border-t border-border/40 w-full">
-                          <Button 
-                            variant="zen"
-                            size="sm"
-                            className="flex-1 h-8 text-xs font-bold shadow-sm px-2"
-                            onClick={() => setSelectedTemplateId(template.id)}
-                          >
-                            <Pencil className="h-3.5 w-3.5 mr-1.5 shrink-0" />
-                            <span className="truncate">Redactar</span>
-                          </Button>
-
-                          {!template.is_system && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 px-2.5 text-xs font-bold text-slate-600 hover:text-violet-700 hover:bg-violet-50 border-border/50 shrink-0"
-                              onClick={() => navigate('/settings?tab=plantillas')}
-                            >
-                              <Settings className="h-3.5 w-3.5 mr-1.5" />
-                              Editar
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
             </div>
-          ) : (
-            <StructuredNoteForm
-              templateId={selectedTemplateId}
-              initialPatientId={selectedPatient || undefined}
-              initialPatientName={selectedPatientName || undefined}
-              onCancel={() => {
-                setIsCreatingNote(false);
-                setSelectedTemplateId(null);
-                if (searchParams.get('newNote') === 'true' && selectedPatient) {
-                  navigate('/patients', { state: { selectPatientId: selectedPatient } });
-                }
-              }}
-              onSave={async (noteData) => {
-                const { data: { user } } = await supabase.auth.getUser();
-                const { error } = await supabase
-                  .from('session_notes')
-                  .insert({
-                    user_id: user?.id,
-                    patient_id: noteData.patientId || null,
-                    patient_name: noteData.patientName || 'Sin paciente',
-                    date: noteData.date,
-                    session_number: parseInt(noteData.sessionNumber) || 1,
-                    mood: noteData.mood,
-                    bridge: noteData.bridge,
-                    agenda: noteData.agenda,
-                    beliefs: noteData.beliefs,
-                    action_plan: noteData.actionPlan,
-                    cie10_code: noteData.cie10Code || null,
-                    cie10_description: noteData.cie10Description || null,
-                    diagnostico_principal: noteData.diagnosticoPrincipal || null,
-                    mental_status: noteData.mentalStatus || null,
-                    content: noteData,
-                    organization_id: organization?.id,
-                    template_id: selectedTemplateId
-                  });
-                if (error) {
-                  toast.error('Error al guardar: ' + error.message);
-                } else {
-                  toast.success('Nota guardada con éxito');
-                  setIsCreatingNote(false);
-                  setSelectedTemplateId(null);
-                  if (searchParams.get('newNote') === 'true' && selectedPatient) {
-                    navigate('/patients', { state: { selectPatientId: selectedPatient } });
-                  }
-                }
-              }}
-            />
-          )}
+
+            {/* Section: Structured Clinical Templates */}
+            <Card className="border-border shadow-xs overflow-hidden">
+              <CardHeader className="bg-muted/10 border-b border-border/50 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-base font-bold">Plantillas Clínicas Estructuradas</CardTitle>
+                  <CardDescription>O redacta con metodologías específicas: TCC, SOAP, Examen Mental y más</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="p-6">
+              {isLoadingTemplates ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary/30" />
+                  <p className="text-xs text-muted-foreground font-medium">Cargando plantillas...</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {noteTemplates.map((template: any) => (
+                    <div
+                      key={template.id}
+                      className="group flex flex-col p-5 rounded-2xl border border-border bg-card text-left transition-all hover:border-primary/40 hover:shadow-md"
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div className={cn(
+                          "h-10 w-10 rounded-xl flex items-center justify-center transition-colors",
+                          template.is_system ? "bg-primary/5 text-primary" : "bg-violet-50 text-violet-600"
+                        )}>
+                          <FileText className="h-5 w-5" />
+                        </div>
+                        
+                        <Badge variant="outline" className={cn(
+                          "text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 border",
+                          template.is_system ? "bg-primary/5 text-primary border-primary/20" : "bg-violet-50 text-violet-600 border-violet-200"
+                        )}>
+                          {template.is_system ? 'Sistema' : 'Personalizada'}
+                        </Badge>
+                      </div>
+
+                      <h4 className="font-bold text-sm mb-1.5">{template.name}</h4>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mb-6 flex-1">
+                        {template.description}
+                      </p>
+
+                      <div className="mt-auto pt-4 flex flex-row items-center gap-2 border-t border-border/40 w-full">
+                        <Button 
+                          variant="zen"
+                          size="sm"
+                          className="flex-1 h-8 text-xs font-bold shadow-sm px-2"
+                          onClick={() => {
+                            setSelectedTemplateId(template.id);
+                            setCreationMode('structured');
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                          <span className="truncate">Redactar</span>
+                        </Button>
+
+                        {!template.is_system && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2.5 text-xs font-bold text-slate-600 hover:text-violet-700 hover:bg-violet-50 border-border/50 shrink-0"
+                            onClick={() => navigate('/settings?tab=plantillas')}
+                          >
+                            <Settings className="h-3.5 w-3.5 mr-1.5" />
+                            Editar
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          </div>
         </div>
         </FeatureGate>
       </Layout>
@@ -510,45 +759,76 @@ const Notes = () => {
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in duration-500">
-              {notes.map((note: any) => (
-                <div
-                  key={note.id}
-                  onClick={() => setSelectedNote(note.id)}
-                  className="group relative cursor-pointer overflow-hidden transition-all duration-300 rounded-2xl border-2 bg-card border-border hover:border-primary/40 hover:shadow-lg hover:-translate-y-1"
-                >
-                  <div className="p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md bg-primary/10 text-primary">
-                        Sesión #{note.session_number}
-                      </span>
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        <Calendar className="h-3 w-3 opacity-60" />
-                        {format(parseISO(note.date), "d MMM yyyy", { locale: es })}
+              {notes.map((note: any) => {
+                const isHandwritten = note.content?.note_type === 'handwritten' || Boolean(note.content?.drawing_data_url);
+                const isFreeText = note.content?.note_type === 'free_text';
+                return (
+                  <div
+                    key={note.id}
+                    onClick={() => setSelectedNote(note.id)}
+                    className="group relative cursor-pointer overflow-hidden transition-all duration-300 rounded-2xl border-2 bg-card border-border hover:border-primary/40 hover:shadow-lg hover:-translate-y-1"
+                  >
+                    <div className="p-5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md bg-primary/10 text-primary">
+                          Sesión #{note.session_number}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          <Calendar className="h-3 w-3 opacity-60" />
+                          {format(parseISO(note.date), "d MMM yyyy", { locale: es })}
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold text-foreground leading-tight">
-                        {note.agenda?.[0]?.topic || 'Consulta General'}
-                      </p>
-                      {note.cie10_code && (
-                        <p className="text-[10px] text-muted-foreground font-medium truncate">
-                          {note.cie10_code} - {note.cie10_description}
+                      
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5">
+                          {isHandwritten ? (
+                            <Badge variant="outline" className="text-[9px] px-2 py-0 bg-violet-50 text-violet-700 border-violet-200 font-bold">
+                              ✍️ Manuscrita
+                            </Badge>
+                          ) : isFreeText ? (
+                            <Badge variant="outline" className="text-[9px] px-2 py-0 bg-blue-50 text-blue-700 border-blue-200 font-bold">
+                              📝 Texto Libre
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[9px] px-2 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 font-bold">
+                              📋 Estructurada
+                            </Badge>
+                          )}
+                        </div>
+
+                        <p className="text-sm font-bold text-foreground leading-tight truncate">
+                          {note.content?.topic || note.agenda?.[0]?.topic || 'Consulta General'}
                         </p>
+                        {note.cie10_code && (
+                          <p className="text-[10px] text-muted-foreground font-medium truncate">
+                            {note.cie10_code} - {note.cie10_description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Handwritten Canvas Thumbnail */}
+                      {isHandwritten && note.content?.drawing_data_url && (
+                        <div className="pt-2 border-t border-border/40 overflow-hidden rounded-xl bg-slate-50 border border-border/30">
+                          <img
+                            src={note.content.drawing_data_url}
+                            alt="Miniatura"
+                            className="w-full h-20 object-cover object-top opacity-85 group-hover:opacity-100 transition-opacity"
+                          />
+                        </div>
+                      )}
+                      
+                      {note.mood?.rating != null && (
+                        <div className="pt-2 border-t border-border/40 flex items-center gap-2">
+                          <Activity className="h-3.5 w-3.5 text-primary/60" />
+                          <span className="text-[11px] font-bold text-muted-foreground">
+                            Ánimo: {note.mood.rating}%
+                          </span>
+                        </div>
                       )}
                     </div>
-                    
-                    {note.mood?.rating != null && (
-                      <div className="pt-2 border-t border-border/40 flex items-center gap-2">
-                        <Activity className="h-3.5 w-3.5 text-primary/60" />
-                        <span className="text-[11px] font-bold text-muted-foreground">
-                          Ánimo: {note.mood.rating}%
-                        </span>
-                      </div>
-                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <Dialog open={!!selectedNoteData} onOpenChange={(open) => {
@@ -579,18 +859,34 @@ const Notes = () => {
                         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                           {!isEditing ? (
                             <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-10 px-4 rounded-xl border-primary/20 hover:bg-primary/5 text-primary gap-2 transition-all font-bold"
-                                onClick={() => {
-                                  setEditingText(getNoteFullDisplayHtml(selectedNoteData));
-                                  setIsEditing(true);
-                                  setConfirmDelete(false);
-                                }}
-                              >
-                                <Pencil className="h-4 w-4" /> Editar Modo Completo
-                              </Button>
+                              {selectedNoteData.content?.drawing_data_url ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-10 px-4 rounded-xl border-violet-300 hover:bg-violet-50 text-violet-700 gap-2 transition-all font-bold"
+                                  onClick={() => {
+                                    setEditingHandwrittenNote(selectedNoteData);
+                                    setCreationMode('handwritten');
+                                    setIsCreatingNote(true);
+                                    setSelectedNote(null);
+                                  }}
+                                >
+                                  <Pen className="h-4 w-4" /> Continuar Dibujo / Editar
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-10 px-4 rounded-xl border-primary/20 hover:bg-primary/5 text-primary gap-2 transition-all font-bold"
+                                  onClick={() => {
+                                    setEditingText(getNoteFullDisplayHtml(selectedNoteData));
+                                    setIsEditing(true);
+                                    setConfirmDelete(false);
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" /> Editar Modo Completo
+                                </Button>
+                              )}
                               <Button
                                 variant="zen"
                                 size="sm"
@@ -674,64 +970,96 @@ const Notes = () => {
                         )}
 
                         {/* Report Section */}
-                        <div className="space-y-6">
-                          <h4 className="text-xs font-black uppercase tracking-[0.2em] text-primary/60 flex items-center gap-2">
-                            <Brain className="h-5 w-5" /> Reporte Clínico Estructurado
-                          </h4>
-                          
-                          {isEditing ? (
-                            <div className="bg-white dark:bg-slate-900 rounded-xl p-2 border-2 border-primary/20 shadow-inner focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-300">
-                              <MiniEditor
-                                content={editingText}
-                                onChange={(html) => setEditingText(html)}
-                                className="border-none min-h-[500px]"
+                        {selectedNoteData.content?.drawing_data_url ? (
+                          <div className="space-y-6">
+                            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                              <h4 className="text-xs font-black uppercase tracking-[0.2em] text-violet-600 flex items-center gap-2">
+                                <Pen className="h-4 w-4" /> Anotaciones Manuscritas (iPad / Tablet)
+                              </h4>
+                              <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200">
+                                Trazo Táctil Alta Resolución
+                              </Badge>
+                            </div>
+
+                            <div className="rounded-2xl border-2 border-slate-200 dark:border-slate-800 overflow-hidden bg-white shadow-md p-2">
+                              <img
+                                src={selectedNoteData.content.drawing_data_url}
+                                alt="Nota Manuscrita"
+                                className="w-full h-auto max-h-[850px] object-contain rounded-xl select-none"
                               />
                             </div>
-                          ) : (
-                            <div className="space-y-6">
-                              <div 
-                                className="text-[15px] bg-transparent whitespace-pre-wrap leading-relaxed text-slate-800 dark:text-slate-200 prose prose-sm max-w-none prose-headings:text-primary prose-a:text-primary prose-p:mb-4"
-                                dangerouslySetInnerHTML={{ 
-                                  __html: DOMPurify.sanitize(getNoteFullDisplayHtml(selectedNoteData)) 
-                                }}
-                              />
 
-                              {/* Structured Sections */}
-                              {selectedNoteData.diagnosis && (
-                                <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-border/50">
-                                  <h5 className="text-xs font-black uppercase tracking-wider text-primary mb-2 flex items-center gap-2">
-                                    🩺 Impresión Diagnóstica / CIE-10
-                                  </h5>
-                                  <p className="text-sm text-foreground leading-relaxed">
-                                    {typeof selectedNoteData.diagnosis === 'string' ? selectedNoteData.diagnosis : JSON.stringify(selectedNoteData.diagnosis)}
-                                  </p>
-                                </div>
-                              )}
+                            {selectedNoteData.content?.notes && (
+                              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-border/50">
+                                <h5 className="text-xs font-bold uppercase text-muted-foreground mb-1">
+                                  Comentarios y Observaciones adicionales
+                                </h5>
+                                <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                                  {selectedNoteData.content.notes}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-6">
+                            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-primary/60 flex items-center gap-2">
+                              <Brain className="h-5 w-5" /> {selectedNoteData.content?.note_type === 'free_text' ? 'Nota Clínica Libre' : 'Reporte Clínico Estructurado'}
+                            </h4>
+                            
+                            {isEditing ? (
+                              <div className="bg-white dark:bg-slate-900 rounded-xl p-2 border-2 border-primary/20 shadow-inner focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-300">
+                                <MiniEditor
+                                  content={editingText}
+                                  onChange={(html) => setEditingText(html)}
+                                  className="border-none min-h-[500px]"
+                                />
+                              </div>
+                            ) : (
+                              <div className="space-y-6">
+                                <div 
+                                  className="text-[15px] bg-transparent whitespace-pre-wrap leading-relaxed text-slate-800 dark:text-slate-200 prose prose-sm max-w-none prose-headings:text-primary prose-a:text-primary prose-p:mb-4"
+                                  dangerouslySetInnerHTML={{ 
+                                    __html: DOMPurify.sanitize(getNoteFullDisplayHtml(selectedNoteData)) 
+                                  }}
+                                />
 
-                              {selectedNoteData.action_plan && (
-                                <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-border/50">
-                                  <h5 className="text-xs font-black uppercase tracking-wider text-primary mb-2 flex items-center gap-2">
-                                    🎯 Plan de Acción & Tareas
-                                  </h5>
-                                  <p className="text-sm text-foreground leading-relaxed">
-                                    {typeof selectedNoteData.action_plan === 'string' ? selectedNoteData.action_plan : JSON.stringify(selectedNoteData.action_plan)}
-                                  </p>
-                                </div>
-                              )}
+                                {/* Structured Sections */}
+                                {selectedNoteData.diagnosis && (
+                                  <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-border/50">
+                                    <h5 className="text-xs font-black uppercase tracking-wider text-primary mb-2 flex items-center gap-2">
+                                      🩺 Impresión Diagnóstica / CIE-10
+                                    </h5>
+                                    <p className="text-sm text-foreground leading-relaxed">
+                                      {typeof selectedNoteData.diagnosis === 'string' ? selectedNoteData.diagnosis : JSON.stringify(selectedNoteData.diagnosis)}
+                                    </p>
+                                  </div>
+                                )}
 
-                              {selectedNoteData.mental_exam && (
-                                <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-border/50">
-                                  <h5 className="text-xs font-black uppercase tracking-wider text-primary mb-2 flex items-center gap-2">
-                                    🧠 Examen del Estado Mental
-                                  </h5>
-                                  <p className="text-sm text-foreground leading-relaxed">
-                                    {typeof selectedNoteData.mental_exam === 'string' ? selectedNoteData.mental_exam : JSON.stringify(selectedNoteData.mental_exam)}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                                {selectedNoteData.action_plan && (
+                                  <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-border/50">
+                                    <h5 className="text-xs font-black uppercase tracking-wider text-primary mb-2 flex items-center gap-2">
+                                      🎯 Plan de Acción & Tareas
+                                    </h5>
+                                    <p className="text-sm text-foreground leading-relaxed">
+                                      {typeof selectedNoteData.action_plan === 'string' ? selectedNoteData.action_plan : JSON.stringify(selectedNoteData.action_plan)}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {selectedNoteData.mental_exam && (
+                                  <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-border/50">
+                                    <h5 className="text-xs font-black uppercase tracking-wider text-primary mb-2 flex items-center gap-2">
+                                      🧠 Examen del Estado Mental
+                                    </h5>
+                                    <p className="text-sm text-foreground leading-relaxed">
+                                      {typeof selectedNoteData.mental_exam === 'string' ? selectedNoteData.mental_exam : JSON.stringify(selectedNoteData.mental_exam)}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Visual Signature Block (only shown in view mode) */}
                         {!isEditing && professionalProfile && (

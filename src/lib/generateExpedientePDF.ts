@@ -47,6 +47,7 @@ export interface SessionNoteData {
     diagnostico_principal?: string;
     transcript_summary?: string;
     mental_status?: Record<string, string[]>;
+    content?: any;
 }
 
 export interface ConsentData {
@@ -531,6 +532,26 @@ export function generateExpedientePDF(
             }
         }
 
+        // Anotaciones Manuscritas (Touch / iPad / Tablet)
+        if (note.content?.drawing_data_url) {
+            if (y > pageH - 70) y = addPage();
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(80, 80, 100);
+            doc.text(note.content.topic || 'Anotaciones Manuscritas (iPad / Tablet):', margin + 3, y);
+            y += 5;
+            try {
+                const imgProps = doc.getImageProperties(note.content.drawing_data_url);
+                const aspect = imgProps.height / imgProps.width;
+                const imgW = contentW - 6;
+                const imgH = Math.min(imgW * aspect, 90);
+                if (y + imgH > pageH - margin) y = addPage();
+                doc.addImage(note.content.drawing_data_url, 'PNG', margin + 3, y, imgW, imgH);
+                y += imgH + 6;
+            } catch (e) {
+                console.error('Error embedding handwritten image in dossier PDF:', e);
+            }
+        }
+
         y += 6;
     }
 
@@ -770,7 +791,7 @@ export function generateSessionNotePDF(
         { label: 'Estado de ánimo / Afecto', content: note.mood?.notes, rating: note.mood?.rating },
         { label: 'Revisión de temas / Tarea', content: note.bridge?.homework_review || note.bridge?.notes },
         { label: 'Agenda / Desarrollo de la sesión', isAgenda: true },
-        { label: 'Reporte Clínico de Sesión', content: note.transcript_summary },
+        { label: note.content?.topic || 'Reporte Clínico de Sesión', content: (note.content?.note_type === 'free_text' && note.content?.text) ? stripHtml(note.content.text) : note.transcript_summary },
         { label: 'Creencias / Flexibilidad Cognitiva', content: note.beliefs?.core || note.beliefs?.belief ? `Creencia nuclear: ${note.beliefs.core || note.beliefs.belief}${note.beliefs.alternative ? `\nAlternativa: ${note.beliefs.alternative}` : ''}` : undefined },
         { label: 'Notas de diagnóstico / Plan de tratamiento', content: note.diagnostico_principal },
     ];
@@ -842,6 +863,26 @@ export function generateSessionNotePDF(
             if (y > pageH - 20) y = addPage();
             const checkbox = task.completed ? '[✓]' : '[ ]';
             y = addWrappedText(doc, `${checkbox} ${task.task}`, margin + 4, y, contentW - 4, 5, pageH, margin, addPage, 'helvetica', 'normal', 9, 50, 50, 50);
+        }
+    }
+
+    // Anotaciones Manuscritas (Touch / iPad / Tablet)
+    if (note.content?.drawing_data_url) {
+        if (y > pageH - 90) y = addPage();
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 30, 60);
+        doc.text(note.content.topic || 'ANOTACIONES MANUSCRITAS (IPAD / TABLET)', margin, y);
+        y += 6;
+        try {
+            const imgProps = doc.getImageProperties(note.content.drawing_data_url);
+            const aspect = imgProps.height / imgProps.width;
+            const imgW = contentW;
+            const imgH = Math.min(imgW * aspect, 120);
+            if (y + imgH > pageH - 45) y = addPage();
+            doc.addImage(note.content.drawing_data_url, 'PNG', margin, y, imgW, imgH);
+            y += imgH + 8;
+        } catch (e) {
+            console.error('Error adding handwritten image to PDF:', e);
         }
     }
 
