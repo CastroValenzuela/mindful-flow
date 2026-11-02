@@ -44,10 +44,19 @@ export interface SessionNoteData {
     action_plan?: { task?: string; completed?: boolean }[];
     cie10_code?: string;
     cie10_description?: string;
+    cie11_code?: string;
+    cie11_description?: string;
+    diagnoses?: { system: 'CIE-10' | 'CIE-11'; code: string; description: string }[];
+    cie10_description?: string;
     diagnostico_principal?: string;
     transcript_summary?: string;
     mental_status?: Record<string, string[]>;
     content?: any;
+}
+
+export interface SessionNotePDFOptions {
+    includeDiagnosis?: boolean;
+    autoPrint?: boolean;
 }
 
 export interface ConsentData {
@@ -167,6 +176,7 @@ export function generateExpedientePDF(
     notes: SessionNoteData[],
     consents: ConsentData[],
     professional?: ProfessionalData,
+    options: SessionNotePDFOptions = { includeDiagnosis: true },
 ): void {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
@@ -492,14 +502,30 @@ export function generateExpedientePDF(
         }
 
         // CIE-10 de esta sesión
-        if (note.cie10_code) {
+        const shouldIncludeDiagnosis = options?.includeDiagnosis !== false;
+    const allDiagnoses: { system: string; code: string; description: string }[] = [];
+    if (note.content?.diagnoses && Array.isArray(note.content.diagnoses)) {
+        allDiagnoses.push(...note.content.diagnoses);
+    } else if (note.diagnoses && Array.isArray(note.diagnoses)) {
+        allDiagnoses.push(...note.diagnoses);
+    }
+    if (allDiagnoses.length === 0 && (note.cie10_code || note.content?.cie10_code || note.content?.cie11_code)) {
+        const code = note.content?.cie11_code || note.cie10_code || note.content?.cie10_code || '';
+        const desc = note.content?.cie11_description || note.cie10_description || note.content?.cie10_description || '';
+        const isCie11 = code.startsWith('6') || code.startsWith('7') || code.startsWith('Q');
+        if (code) allDiagnoses.push({ system: isCie11 ? 'CIE-11' : 'CIE-10', code, description: desc });
+    }
+    if (shouldIncludeDiagnosis && (note.cie10_code || allDiagnoses.length > 0)) {
             if (y > pageH - margin) y = addPage();
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(80, 80, 100);
-            doc.text(`Diagnóstico CIE-10: `, margin + 3, y);
+            const dxSummary = allDiagnoses.length > 0 
+                ? allDiagnoses.map(d => `[${d.system} ${d.code}] ${d.description}`).join('; ')
+                : `${note.cie10_code} — ${note.cie10_description || ''}`;
+            doc.text(`Diagnóstico (CIE): `, margin + 3, y);
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(40, 40, 40);
-            doc.text(`${note.cie10_code} — ${note.cie10_description || ''}`, margin + 42, y);
+            doc.text(dxSummary, margin + 42, y, { maxWidth: contentW - 42 });
             y += 5.5;
         }
 
@@ -664,7 +690,8 @@ export function generateExpedientePDF(
 export function generateSessionNotePDF(
     patient: { name: string; id: string; date_of_birth?: string },
     note: SessionNoteData,
-    professional?: ProfessionalData
+    professional?: ProfessionalData,
+    options: SessionNotePDFOptions = { includeDiagnosis: true }
 ): void {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
@@ -776,13 +803,29 @@ export function generateSessionNotePDF(
     doc.setTextColor(30, 30, 30);
     doc.text(`Sesión #${note.session_number}`, margin + 35, y);
 
-    if (note.cie10_code) {
+    const shouldIncludeDiagnosis = options?.includeDiagnosis !== false;
+    const allDiagnoses: { system: string; code: string; description: string }[] = [];
+    if (note.content?.diagnoses && Array.isArray(note.content.diagnoses)) {
+        allDiagnoses.push(...note.content.diagnoses);
+    } else if (note.diagnoses && Array.isArray(note.diagnoses)) {
+        allDiagnoses.push(...note.diagnoses);
+    }
+    if (allDiagnoses.length === 0 && (note.cie10_code || note.content?.cie10_code || note.content?.cie11_code)) {
+        const code = note.content?.cie11_code || note.cie10_code || note.content?.cie10_code || '';
+        const desc = note.content?.cie11_description || note.cie10_description || note.content?.cie10_description || '';
+        const isCie11 = code.startsWith('6') || code.startsWith('7') || code.startsWith('Q');
+        if (code) allDiagnoses.push({ system: isCie11 ? 'CIE-11' : 'CIE-10', code, description: desc });
+    }
+    if (shouldIncludeDiagnosis && (note.cie10_code || allDiagnoses.length > 0)) {
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(80, 80, 100);
         doc.text('Diagnóstico:', margin + 105, y);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(30, 30, 30);
-        doc.text(`${note.cie10_code} — ${note.cie10_description || ''}`, margin + 140, y);
+        const primaryDx = allDiagnoses[0];
+        const extraCount = allDiagnoses.length > 1 ? ` (+${allDiagnoses.length - 1} más)` : '';
+        const dxLabel = primaryDx ? `[${primaryDx.system} ${primaryDx.code}] ${primaryDx.description}${extraCount}` : `${note.cie10_code} — ${note.cie10_description || ''}`;
+        doc.text(dxLabel, margin + 140, y, { maxWidth: contentW - 140 });
     }
     y += 10;
 
@@ -793,7 +836,13 @@ export function generateSessionNotePDF(
         { label: 'Agenda / Desarrollo de la sesión', isAgenda: true },
         { label: note.content?.topic || 'Reporte Clínico de Sesión', content: (note.content?.note_type === 'free_text' && note.content?.text) ? stripHtml(note.content.text) : note.transcript_summary },
         { label: 'Creencias / Flexibilidad Cognitiva', content: note.beliefs?.core || note.beliefs?.belief ? `Creencia nuclear: ${note.beliefs.core || note.beliefs.belief}${note.beliefs.alternative ? `\nAlternativa: ${note.beliefs.alternative}` : ''}` : undefined },
-        { label: 'Notas de diagnóstico / Plan de tratamiento', content: note.diagnostico_principal },
+        ...(shouldIncludeDiagnosis && (allDiagnoses.length > 0 || note.diagnostico_principal) ? [{
+            label: 'Diagnóstico Clínico y Clasificación (CIE)',
+            content: [
+                allDiagnoses.length > 0 ? allDiagnoses.map(d => `• [${d.system} ${d.code}] ${d.description}`).join('\n') : '',
+                note.diagnostico_principal ? `Impresión diagnóstica:\n${note.diagnostico_principal}` : ''
+            ].filter(Boolean).join('\n\n')
+        }] : []),
     ];
 
     for (const section of sections) {
@@ -928,6 +977,25 @@ export function generateSessionNotePDF(
         doc.text(`Documento de validez clínica. Saudade © ${new Date().getFullYear()} | Página ${i} de ${totalPages}`, pageW / 2, pageH - 8, { align: 'center' });
     }
 
-    doc.save(`nota_sesion_${note.session_number}_${patient.name.replace(/\s+/g, '_')}.pdf`);
+    if (options?.autoPrint) {
+        doc.autoPrint();
+        const blobUrl = doc.output('bloburl');
+        window.open(blobUrl, '_blank');
+    } else {
+        const suffix = shouldIncludeDiagnosis ? '' : '_sin_dx';
+        doc.save(`nota_sesion_${note.session_number}_${patient.name.replace(/\s+/g, '_')}${suffix}.pdf`);
+    }
+}
+
+/**
+ * Imprime directamente una nota clínica respetando las opciones de diagnóstico.
+ */
+export function printSessionNotePDF(
+    patient: { name: string; id: string; date_of_birth?: string },
+    note: SessionNoteData,
+    professional?: ProfessionalData,
+    options: SessionNotePDFOptions = { includeDiagnosis: true }
+): void {
+    generateSessionNotePDF(patient, note, professional, { ...options, autoPrint: true });
 }
 

@@ -78,6 +78,9 @@ export interface SessionNote {
         completed: boolean;
     }[];
     cie10_code?: string;
+    cie11_code?: string;
+    cie11_description?: string;
+    diagnoses?: { system: 'CIE-10' | 'CIE-11'; code: string; description: string }[];
     cie10_description?: string;
     diagnostico_principal?: string;
     transcript_summary?: string;

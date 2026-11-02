@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import CIE10Selector from '@/components/notes/CIE10Selector';
+import CIEDiagnosisSelector, { DiagnosisItem } from '@/components/notes/CIEDiagnosisSelector';
 import MentalStatusSection from '@/components/notes/MentalStatusSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,25 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, X, Save, CheckCircle2, Circle, Sparkles, RefreshCw, ShieldCheck, Zap, Eye, RotateCw, FileText, Check, CornerDownRight } from 'lucide-react';
+import {
+    Plus,
+    X,
+    Save,
+    CheckCircle2,
+    Circle,
+    Sparkles,
+    RefreshCw,
+    ShieldCheck,
+    Zap,
+    Eye,
+    RotateCw,
+    FileText,
+    Check,
+    CornerDownRight,
+    User,
+    Calendar,
+    Activity,
+} from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -41,7 +59,7 @@ interface NoteTemplate {
 
 const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatientName, templateId }: StructuredNoteFormProps) => {
     const [template, setTemplate] = useState<NoteTemplate | null>(null);
-    const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
+    const [, setIsLoadingTemplate] = useState(false);
 
     // General Info
     const [patientId, setPatientId] = useState(initialPatientId || '');
@@ -51,7 +69,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
 
     // Continuidad Clínica: Contexto de sesión anterior
     const [previousNote, setPreviousNote] = useState<any | null>(null);
-    const [isLoadingPrevNote, setIsLoadingPrevNote] = useState(false);
+    const [, setIsLoadingPrevNote] = useState(false);
     const [hasImportedFromPrev, setHasImportedFromPrev] = useState(false);
     const [showPrevNoteModal, setShowPrevNoteModal] = useState(false);
 
@@ -134,11 +152,12 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
     const [actionPlanItems, setActionPlanItems] = useState<string[]>([]);
     const [newActionPlanItem, setNewActionPlanItem] = useState('');
 
-    // CIE-10 (NOM-024 INT-01)
+    // Diagnósticos CIE-11 / CIE-10 (OMS & NOM-024)
+    const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>([]);
     const [cie10, setCie10] = useState<{ code: string; description: string } | null>(null);
     const [diagnosticoPrincipal, setDiagnosticoPrincipal] = useState('');
 
-    // Dynamic Sections State (for generic text areas)
+    // Dynamic Sections State (for generic text areas: free_text, observations, etc.)
     const [dynamicFields, setDynamicFields] = useState<Record<string, string>>({});
 
     // Load Template
@@ -147,7 +166,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
             if (!templateId) return;
             setIsLoadingTemplate(true);
             try {
-                const { data, error } = await supabase
+                const { data } = await supabase
                     .from('note_templates')
                     .select('*')
                     .eq('id', templateId)
@@ -176,7 +195,6 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
 
     const hasSection = (key: string) => !template || template.sections.includes(key);
     const getLabel = (key: string, defaultLabel: string) => template?.section_labels?.[key] || defaultLabel;
-
 
     // Handlers
     const handleAddBridgeItem = () => {
@@ -251,12 +269,20 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
             }
         }
 
-        // 3. CIE-10 y Diagnóstico principal
-        if (!cie10 && previousNote.cie10_code) {
-            setCie10({
+        // 3. CIE-11 / CIE-10 y Diagnóstico principal
+        if (diagnoses.length === 0 && previousNote.cie10_code) {
+            const isCie11 = previousNote.cie10_code.startsWith('6') || previousNote.cie10_code.startsWith('7') || previousNote.cie10_code.startsWith('Q');
+            const importedDx: DiagnosisItem = {
+                system: isCie11 ? 'CIE-11' : 'CIE-10',
                 code: previousNote.cie10_code,
                 description: previousNote.cie10_description || '',
-            });
+                group: 'Sesión anterior'
+            };
+            setDiagnoses([importedDx]);
+            setCie10({ code: importedDx.code, description: importedDx.description });
+        }
+        if (previousNote.content?.diagnoses && Array.isArray(previousNote.content.diagnoses) && previousNote.content.diagnoses.length > 0) {
+            setDiagnoses(previousNote.content.diagnoses);
         }
         if (!diagnosticoPrincipal && previousNote.diagnostico_principal) {
             setDiagnosticoPrincipal(previousNote.diagnostico_principal);
@@ -293,6 +319,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
         coreBeliefs,
         alternativeBeliefs,
         actionPlanItems,
+        diagnoses,
         cie10,
         diagnosticoPrincipal,
         dynamicFields,
@@ -306,6 +333,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
         coreBeliefs.trim() ||
         alternativeBeliefs.trim() ||
         actionPlanItems.length > 0 ||
+        diagnoses.length > 0 ||
         cie10 ||
         diagnosticoPrincipal.trim() ||
         Object.values(dynamicFields).some(v => Boolean(v && v.trim()))
@@ -337,6 +365,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
             if (restored.coreBeliefs !== undefined) setCoreBeliefs(restored.coreBeliefs);
             if (restored.alternativeBeliefs !== undefined) setAlternativeBeliefs(restored.alternativeBeliefs);
             if (restored.actionPlanItems) setActionPlanItems(restored.actionPlanItems);
+            if (restored.diagnoses) setDiagnoses(restored.diagnoses);
             if (restored.cie10 !== undefined) setCie10(restored.cie10);
             if (restored.diagnosticoPrincipal !== undefined) setDiagnosticoPrincipal(restored.diagnosticoPrincipal);
             if (restored.dynamicFields) setDynamicFields(restored.dynamicFields);
@@ -345,6 +374,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
     });
 
     const handleSave = () => {
+        const primaryDx = diagnoses[0] || (cie10 ? { code: cie10.code, description: cie10.description, system: 'CIE-10' as const, group: '' } : null);
         const noteData = {
             patientId,
             patientName,
@@ -356,9 +386,11 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
             agenda: agendaItems,
             beliefs: { core: coreBeliefs, alternative: alternativeBeliefs },
             actionPlan: actionPlanItems,
-            cie10Code: cie10?.code || null,
-            cie10Description: cie10?.description || null,
+            cie10Code: primaryDx?.code || null,
+            cie10Description: primaryDx?.description || null,
             diagnosticoPrincipal: diagnosticoPrincipal || null,
+            diagnoses: diagnoses.length > 0 ? diagnoses : (primaryDx ? [primaryDx] : []),
+            dynamicFields,
             createdAt: new Date().toISOString()
         };
         clearDraft();
@@ -366,12 +398,12 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
     };
 
     return (
-        <div className="max-w-5xl mx-auto space-y-6 pb-20">
+        <div className="w-full max-w-6xl mx-auto space-y-6 pb-24 px-2 sm:px-4 animate-fade-in">
             {/* Banner de Recuperación de Borrador no guardado */}
             {hasDraft && (
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200 animate-fade-in shadow-sm">
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200 animate-fade-in shadow-sm">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-amber-500/20 rounded-lg text-amber-700 dark:text-amber-300 shrink-0">
+                        <div className="p-2 bg-amber-500/20 rounded-xl text-amber-700 dark:text-amber-300 shrink-0">
                             <Sparkles className="h-5 w-5" />
                         </div>
                         <div>
@@ -384,10 +416,10 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                         </div>
                     </div>
                     <div className="flex items-center gap-2 self-end sm:self-auto">
-                        <Button size="sm" variant="outline" onClick={discardDraft} className="text-xs h-8">
+                        <Button size="sm" variant="outline" onClick={discardDraft} className="text-xs h-9 rounded-xl">
                             Descartar
                         </Button>
-                        <Button size="sm" onClick={() => restoreDraft()} className="text-xs h-8 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white">
+                        <Button size="sm" onClick={() => restoreDraft()} className="text-xs h-9 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl">
                             <RefreshCw className="h-3.5 w-3.5" />
                             Restaurar notas
                         </Button>
@@ -395,495 +427,580 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                 </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 mb-6">
-                <div className="flex items-center gap-2">
-                    {autosaveStatus === 'saving' && (
-                        <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 bg-amber-50 animate-pulse">
-                            Guardando borrador...
-                        </Badge>
-                    )}
-                    {autosaveStatus === 'saved' && (
-                        <Badge variant="outline" className="text-xs text-emerald-700 border-emerald-300 bg-emerald-50 gap-1">
-                            <ShieldCheck className="h-3 w-3 text-emerald-600" />
-                            Borrador respaldado localmente
-                        </Badge>
-                    )}
+            {/* ── Top Bar con Estado de Guardado y Botones ── */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-card rounded-2xl border border-border shadow-xs">
+                <div className="flex items-center gap-2.5">
+                    <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+                        <FileText className="h-5 w-5" />
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-lg font-bold tracking-tight text-foreground">
+                                {template?.name || 'Nota Clínica Estructurada'}
+                            </h2>
+                            {template?.name && (
+                                <Badge variant="outline" className="text-[10px] bg-primary/5 text-primary border-primary/20">
+                                    Plantilla Activa
+                                </Badge>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {autosaveStatus === 'saving' && (
+                                <span className="text-amber-600 animate-pulse flex items-center gap-1 font-medium">
+                                    Guardando borrador local...
+                                </span>
+                            )}
+                            {autosaveStatus === 'saved' && (
+                                <span className="text-emerald-600 flex items-center gap-1 font-medium">
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                    Borrador respaldado localmente
+                                </span>
+                            )}
+                            {autosaveStatus === 'idle' && (
+                                <span>Campos completos en pantalla amplia</span>
+                            )}
+                        </div>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={onCancel}>Cancelar</Button>
-                    <Button onClick={handleSave} className="gap-2">
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <Button variant="ghost" onClick={onCancel} className="h-10 px-4 text-xs font-semibold rounded-xl">
+                        Cancelar
+                    </Button>
+                    <Button variant="zen" onClick={handleSave} className="h-10 px-6 gap-2 text-xs font-bold rounded-xl shadow-md shadow-primary/20">
                         <Save className="h-4 w-4" />
                         Guardar Nota
                     </Button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Header - Patient Info */}
-                <div className="md:col-span-2 bg-red-50/50 p-6 rounded-2xl border border-red-100 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-red-900">Paciente</label>
-                            <PatientAutocomplete
-                                value={patientId}
-                                onSelect={(id, name) => {
-                                    setPatientId(id);
-                                    setPatientName(name);
-                                }}
+            {/* ── Card 1: Información General y Diagnóstico Clínico (Abarca toda la pantalla) ── */}
+            <Card className="border-border shadow-xs w-full bg-card rounded-2xl overflow-hidden">
+                <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm font-bold text-foreground">
+                            Identificación del Paciente y Diagnóstico
+                        </CardTitle>
+                    </div>
+                    <span className="text-xs text-muted-foreground font-medium">
+                        Sesión #{sessionNumber}
+                    </span>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6">
+                    {/* Fila 1: Paciente, Fecha, Número de Sesión */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
+                        <div className="lg:col-span-6 space-y-1.5">
+                            <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                                <User className="h-3.5 w-3.5" /> Paciente
+                            </Label>
+                            {initialPatientId ? (
+                                <div className="h-11 px-3.5 rounded-xl bg-muted/40 border border-border/60 flex items-center font-bold text-sm truncate">
+                                    {patientName || 'Paciente seleccionado'}
+                                </div>
+                            ) : (
+                                <PatientAutocomplete
+                                    value={patientId}
+                                    onSelect={(id, name) => {
+                                        setPatientId(id);
+                                        setPatientName(name);
+                                    }}
+                                    placeholder="Buscar paciente por nombre..."
+                                />
+                            )}
+                        </div>
+
+                        <div className="lg:col-span-4 space-y-1.5">
+                            <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                                <Calendar className="h-3.5 w-3.5" /> Fecha de Consulta
+                            </Label>
+                            <Input
+                                type="date"
+                                value={sessionDate}
+                                onChange={(e) => setSessionDate(e.target.value)}
+                                className="h-11 rounded-xl text-sm"
                             />
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-red-900">Fecha</label>
-                                <Input
-                                    type="date"
-                                    value={sessionDate}
-                                    onChange={(e) => setSessionDate(e.target.value)}
-                                    className="bg-white/50 border-red-200 focus:border-red-400 focus:ring-red-400"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-red-900">Sesión #</label>
-                                <Input
-                                    type="text"
-                                    value={sessionNumber}
-                                    readOnly
-                                    className="bg-white/50 border-red-200 text-muted-foreground font-medium cursor-not-allowed"
-                                />
-                            </div>
+
+                        <div className="lg:col-span-2 space-y-1.5">
+                            <Label className="text-xs font-bold text-muted-foreground block text-center">
+                                Sesión #
+                            </Label>
+                            <Input
+                                type="text"
+                                value={sessionNumber}
+                                readOnly
+                                className="h-11 rounded-xl text-sm font-bold text-center bg-muted/30 cursor-not-allowed"
+                            />
                         </div>
                     </div>
 
-                    {/* CIE-10 Diagnóstico (NOM-024 INT-01) */}
-                    <div className="space-y-3 pt-2">
-                        <label className="text-xs font-semibold uppercase tracking-wider text-red-700 flex items-center gap-1.5">
-                            🏥 Diagnóstico CIE-10 (NOM-024)
-                        </label>
-                        <div className="relative">
-                            <CIE10Selector value={cie10} onChange={setCie10} />
+                    {/* Fila 2: Diagnóstico Clínico (CIE-11 / CIE-10) */}
+                    <div className="pt-4 border-t border-border/60 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <Label className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                                🏥 Diagnóstico Clínico y Clasificación (CIE-11 / CIE-10)
+                            </Label>
+                            <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                                Puedes seleccionar y añadir uno o varios diagnósticos a la nota
+                            </span>
                         </div>
-                        <div className="space-y-1">
-                            <label className="text-xs text-red-700">Diagnóstico principal (texto libre)</label>
-                            <input
+
+                        <CIEDiagnosisSelector
+                            selectedDiagnoses={diagnoses}
+                            onDiagnosesChange={setDiagnoses}
+                            value={cie10}
+                            onChange={setCie10}
+                        />
+
+                        <div className="space-y-1.5 pt-1">
+                            <Label className="text-xs font-semibold text-muted-foreground">
+                                Impresión diagnóstica complementaria / Motivo principal de atención (texto libre)
+                            </Label>
+                            <Input
                                 type="text"
                                 value={diagnosticoPrincipal}
                                 onChange={(e) => setDiagnosticoPrincipal(e.target.value)}
-                                placeholder="Ej: Trastorno de ansiedad generalizada con episodio depresivo leve..."
-                                className="w-full text-sm rounded-md border border-red-200 bg-white/50 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300"
+                                placeholder="Ej: Trastorno de ansiedad generalizada con síntomas afectivos leves, en proceso de evaluación..."
+                                className="h-11 rounded-xl text-sm"
                             />
                         </div>
                     </div>
-                </div>
+                </CardContent>
+            </Card>
 
-                {/* Mood Section */}
-                {hasSection('mood') && (
-                    <Card className="border-border shadow-sm">
-                        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                            <CardTitle className="text-sm font-bold text-primary">{getLabel('mood', 'Estado de Ánimo')}</CardTitle>
-                            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">{moodRating[0]}%</Badge>
+            {/* ── Dynamic Sections (Nota Básica: free_text, observations, etc.) — Abarcan toda la pantalla ── */}
+            {template?.sections.filter(s => ['free_text', 'techniques', 'observations', 'goals', 'homework'].includes(s)).map(sKey => {
+                const isFreeText = sKey === 'free_text';
+                const isObservations = sKey === 'observations';
+                return (
+                    <Card key={sKey} className="border-border shadow-xs w-full overflow-hidden bg-card rounded-2xl">
+                        <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50 flex flex-row items-center justify-between">
+                            <div>
+                                <CardTitle className="text-base font-bold text-foreground">
+                                    {getLabel(sKey, sKey)}
+                                </CardTitle>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    {isFreeText
+                                        ? 'Espacio principal de redacción de la nota clínica'
+                                        : isObservations
+                                        ? 'Observaciones generales del estado del paciente, interacción o recomendaciones'
+                                        : `Sección clínica: ${getLabel(sKey, sKey)}`}
+                                </p>
+                            </div>
+                            <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-primary/5 text-primary border-primary/20">
+                                {isFreeText ? 'Principal' : 'Sección Libre'}
+                            </Badge>
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="p-6">
+                            <Textarea
+                                value={dynamicFields[sKey] || ''}
+                                onChange={(e) => setDynamicFields({ ...dynamicFields, [sKey]: e.target.value })}
+                                placeholder={
+                                    isFreeText
+                                        ? 'Escribe el desarrollo completo de la sesión, motivos de consulta, intervenciones terapéuticas aplicadas y evolución del paciente...'
+                                        : isObservations
+                                        ? 'Notas y observaciones de conducta, afecto o seguimiento para próximas sesiones...'
+                                        : `Escribe las ${getLabel(sKey, sKey).toLowerCase()}...`
+                                }
+                                className={cn(
+                                    "w-full text-base leading-relaxed p-4 rounded-xl border-border bg-background focus:ring-2 focus:ring-primary/20",
+                                    isFreeText ? "min-h-[340px]" : "min-h-[150px]"
+                                )}
+                            />
+                        </CardContent>
+                    </Card>
+                );
+            })}
+
+            {/* ── Mood Section (Estado de Ánimo) ── */}
+            {hasSection('mood') && (
+                <Card className="border-border shadow-xs w-full bg-card rounded-2xl overflow-hidden">
+                    <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50 flex flex-row items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Activity className="h-4 w-4 text-primary" />
+                            <CardTitle className="text-sm font-bold text-foreground">
+                                {getLabel('mood', 'Estado de Ánimo')}
+                            </CardTitle>
+                        </div>
+                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 font-bold px-3 py-1 text-xs">
+                            Ánimo: {moodRating[0]}%
+                        </Badge>
+                    </CardHeader>
+                    <CardContent className="p-6 space-y-4">
+                        <div className="py-2">
                             <Slider
                                 value={moodRating}
                                 onValueChange={setMoodRating}
                                 max={100}
                                 step={1}
-                                className="py-4"
+                                className="py-3"
                             />
-                            <Textarea
-                                placeholder="Notas sobre el estado de ánimo..."
-                                value={moodNotes}
-                                onChange={(e) => setMoodNotes(e.target.value)}
-                                className="min-h-[80px]"
-                            />
-                        </CardContent>
-                    </Card>
-                )}
+                        </div>
+                        <Textarea
+                            placeholder="Notas clínicas sobre el estado de ánimo, afecto, congruencia y reactividad emocional..."
+                            value={moodNotes}
+                            onChange={(e) => setMoodNotes(e.target.value)}
+                            className="min-h-[90px] w-full text-sm rounded-xl p-3"
+                        />
+                    </CardContent>
+                </Card>
+            )}
 
-                {/* Bridge Section */}
-                {hasSection('bridge') && (
-                    <Card className="border-border shadow-sm">
-                        <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                                <CardTitle className="text-sm font-bold text-primary">{getLabel('bridge', 'Puente Intersesión')}</CardTitle>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                    Revisión de tareas, acuerdos y eventos entre sesiones (Modelo Beck TCC)
-                                </p>
+            {/* ── Bridge Section (Puente Intersesión) ── */}
+            {hasSection('bridge') && (
+                <Card className="border-border shadow-xs w-full bg-card rounded-2xl overflow-hidden">
+                    <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                            <CardTitle className="text-sm font-bold text-primary">
+                                {getLabel('bridge', 'Puente Intersesión')}
+                            </CardTitle>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Revisión de tareas, acuerdos y eventos entre sesiones (Modelo Beck TCC)
+                            </p>
+                        </div>
+                        {previousNote && (
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowPrevNoteModal(true)}
+                                    className="h-8 text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/5 rounded-xl"
+                                >
+                                    <Eye className="h-3.5 w-3.5" />
+                                    Ver nota previa
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant={hasImportedFromPrev ? "secondary" : "default"}
+                                    size="sm"
+                                    onClick={handleImportFromPreviousSession}
+                                    disabled={hasImportedFromPrev}
+                                    className={cn(
+                                        "h-8 text-xs gap-1.5 rounded-xl font-bold",
+                                        hasImportedFromPrev
+                                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                                            : "bg-primary text-primary-foreground hover:bg-primary/90"
+                                    )}
+                                >
+                                    {hasImportedFromPrev ? (
+                                        <>
+                                            <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                            Importado de Sesión #{previousNote.session_number}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Zap className="h-3.5 w-3.5 text-amber-300" />
+                                            Importar tareas de Sesión #{previousNote.session_number}
+                                        </>
+                                    )}
+                                </Button>
                             </div>
-                            {previousNote && (
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setShowPrevNoteModal(true)}
-                                        className="h-8 text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
-                                    >
-                                        <Eye className="h-3.5 w-3.5" />
-                                        Ver nota previa
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant={hasImportedFromPrev ? "secondary" : "default"}
-                                        size="sm"
-                                        onClick={handleImportFromPreviousSession}
-                                        disabled={hasImportedFromPrev}
-                                        className={cn(
-                                            "h-8 text-xs gap-1.5",
-                                            hasImportedFromPrev
-                                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
-                                                : "bg-primary text-primary-foreground hover:bg-primary/90"
-                                        )}
-                                    >
-                                        {hasImportedFromPrev ? (
-                                            <>
-                                                <Check className="h-3.5 w-3.5 text-emerald-600" />
-                                                Importado de Sesión #{previousNote.session_number}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Zap className="h-3.5 w-3.5 text-amber-300" />
-                                                Importar tareas de Sesión #{previousNote.session_number}
-                                            </>
-                                        )}
-                                    </Button>
-                                </div>
-                            )}
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {/* Continuidad Intersesión: Alerta cuando se detecta nota previa y aún no se importa */}
-                            {previousNote && !hasImportedFromPrev && (
-                                <div className="p-3 bg-gradient-to-r from-primary/5 via-primary/10 to-transparent border border-primary/20 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-                                    <div className="flex items-start gap-2.5">
-                                        <div className="p-1.5 bg-primary/10 rounded-md text-primary mt-0.5">
-                                            <RotateCw className="h-4 w-4" />
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold text-foreground">
-                                                Continuidad con Sesión #{previousNote.session_number}{' '}
-                                                {previousNote.date && (
-                                                    <span className="font-normal text-muted-foreground">
-                                                        ({format(parseISO(previousNote.date), "d 'de' MMMM", { locale: es })})
-                                                    </span>
-                                                )}
-                                            </p>
-                                            <p className="text-muted-foreground mt-0.5">
-                                                {Array.isArray(previousNote.action_plan) && previousNote.action_plan.length > 0
-                                                    ? `${previousNote.action_plan.length} tarea(s) acordada(s) en la sesión previa.`
-                                                    : 'Puedes consultar el plan y notas de la sesión previa.'}
-                                                {previousNote.cie10_code && ` Diagnóstico: ${previousNote.cie10_code}.`}
-                                            </p>
-                                        </div>
+                        )}
+                    </CardHeader>
+                    <CardContent className="p-6 space-y-4">
+                        {previousNote && !hasImportedFromPrev && (
+                            <div className="p-3 bg-gradient-to-r from-primary/5 via-primary/10 to-transparent border border-primary/20 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                                <div className="flex items-start gap-2.5">
+                                    <div className="p-1.5 bg-primary/10 rounded-lg text-primary mt-0.5">
+                                        <RotateCw className="h-4 w-4" />
                                     </div>
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="default"
-                                        onClick={handleImportFromPreviousSession}
-                                        className="text-xs h-7 gap-1 shrink-0"
-                                    >
-                                        <Zap className="h-3 w-3" /> Traer acuerdos al puente
-                                    </Button>
-                                </div>
-                            )}
-
-                            <div className="space-y-2">
-                                {bridgeItems.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground italic py-2">
-                                        No hay tareas ni acuerdos registrados aún. Agrega una nueva o importa las tareas de la sesión previa.
-                                    </p>
-                                ) : (
-                                    bridgeItems.map((item, index) => (
-                                        <div
-                                            key={index}
-                                            className={cn(
-                                                "flex items-center justify-between group p-2.5 rounded-lg border transition-colors",
-                                                item.completed
-                                                    ? "bg-emerald-50/50 border-emerald-200/60"
-                                                    : "bg-background border-border hover:bg-muted/40"
-                                            )}
-                                        >
-                                            <div className="flex items-center gap-3 flex-1 min-w-0 mr-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleBridgeItem(index)}
-                                                    className="focus:outline-none shrink-0"
-                                                    title={item.completed ? "Marcar como pendiente" : "Marcar como cumplida"}
-                                                >
-                                                    {item.completed ? (
-                                                        <CheckCircle2 className="h-5 w-5 text-emerald-500 hover:text-emerald-600 transition-colors" />
-                                                    ) : (
-                                                        <Circle className="h-5 w-5 text-muted-foreground hover:text-primary transition-colors" />
-                                                    )}
-                                                </button>
-                                                <span className={cn("text-sm break-words", item.completed && "line-through text-muted-foreground")}>
-                                                    {item.text}
+                                    <div>
+                                        <p className="font-semibold text-foreground">
+                                            Continuidad con Sesión #{previousNote.session_number}{' '}
+                                            {previousNote.date && (
+                                                <span className="font-normal text-muted-foreground">
+                                                    ({format(parseISO(previousNote.date), "d 'de' MMMM", { locale: es })})
                                                 </span>
-                                            </div>
+                                            )}
+                                        </p>
+                                        <p className="text-muted-foreground mt-0.5">
+                                            {Array.isArray(previousNote.action_plan) && previousNote.action_plan.length > 0
+                                                ? `${previousNote.action_plan.length} tarea(s) acordada(s) en la sesión previa.`
+                                                : 'Puedes consultar el plan y notas de la sesión previa.'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="default"
+                                    onClick={handleImportFromPreviousSession}
+                                    className="text-xs h-7 gap-1 shrink-0 rounded-lg"
+                                >
+                                    <Zap className="h-3 w-3" /> Traer acuerdos al puente
+                                </Button>
+                            </div>
+                        )}
 
-                                            <div className="flex items-center gap-1 shrink-0">
-                                                {/* Carry-Forward: Si no se completó, reasignar al plan de acción de hoy */}
-                                                {!item.completed && (
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleCarryForwardToActionPlan(item.text)}
-                                                        className="h-7 text-xs px-2 text-primary hover:text-primary hover:bg-primary/10 gap-1"
-                                                        title="Reasignar esta tarea pendiente al plan de acción de la sesión de hoy"
-                                                    >
-                                                        <CornerDownRight className="h-3 w-3" />
-                                                        <span className="hidden sm:inline">Reasignar a hoy</span>
-                                                    </Button>
+                        <div className="space-y-2">
+                            {bridgeItems.length === 0 ? (
+                                <p className="text-xs text-muted-foreground italic py-2">
+                                    No hay tareas ni acuerdos registrados aún. Agrega una nueva o importa las tareas de la sesión previa.
+                                </p>
+                            ) : (
+                                bridgeItems.map((item, index) => (
+                                    <div
+                                        key={index}
+                                        className={cn(
+                                            "flex items-center justify-between group p-3 rounded-xl border transition-colors",
+                                            item.completed
+                                                ? "bg-emerald-50/50 border-emerald-200/60"
+                                                : "bg-background border-border hover:bg-muted/40"
+                                        )}
+                                    >
+                                        <div className="flex items-center gap-3 flex-1 min-w-0 mr-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleBridgeItem(index)}
+                                                className="focus:outline-none shrink-0"
+                                                title={item.completed ? "Marcar como pendiente" : "Marcar como cumplida"}
+                                            >
+                                                {item.completed ? (
+                                                    <CheckCircle2 className="h-5 w-5 text-emerald-500 hover:text-emerald-600 transition-colors" />
+                                                ) : (
+                                                    <Circle className="h-5 w-5 text-muted-foreground hover:text-primary transition-colors" />
                                                 )}
+                                            </button>
+                                            <span className={cn("text-sm break-words", item.completed && "line-through text-muted-foreground")}>
+                                                {item.text}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            {!item.completed && (
                                                 <Button
                                                     type="button"
                                                     variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                                                    onClick={() => setBridgeItems(bridgeItems.filter((_, i) => i !== index))}
+                                                    size="sm"
+                                                    onClick={() => handleCarryForwardToActionPlan(item.text)}
+                                                    className="h-7 text-xs px-2 text-primary hover:text-primary hover:bg-primary/10 gap-1 rounded-lg"
+                                                    title="Reasignar esta tarea pendiente al plan de acción de la sesión de hoy"
                                                 >
-                                                    <X className="h-3.5 w-3.5" />
+                                                    <CornerDownRight className="h-3 w-3" />
+                                                    <span className="hidden sm:inline">Reasignar a hoy</span>
                                                 </Button>
-                                            </div>
+                                            )}
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive rounded-lg"
+                                                onClick={() => setBridgeItems(bridgeItems.filter((_, i) => i !== index))}
+                                            >
+                                                <X className="h-3.5 w-3.5" />
+                                            </Button>
                                         </div>
-                                    ))
-                                )}
-                            </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
 
-                            <div className="flex gap-2">
-                                <Input
-                                    placeholder="Nueva tarea o acuerdo intersesión..."
-                                    value={newBridgeItem}
-                                    onChange={(e) => setNewBridgeItem(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && handleAddBridgeItem()}
-                                    className="text-sm"
-                                />
-                                <Button type="button" variant="outline" size="icon" onClick={handleAddBridgeItem}>
-                                    <Plus className="h-4 w-4" />
-                                </Button>
-                            </div>
+                        <div className="flex gap-2">
+                            <Input
+                                placeholder="Nueva tarea o acuerdo intersesión..."
+                                value={newBridgeItem}
+                                onChange={(e) => setNewBridgeItem(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddBridgeItem()}
+                                className="text-sm h-10 rounded-xl"
+                            />
+                            <Button type="button" variant="outline" size="icon" onClick={handleAddBridgeItem} className="h-10 w-10 rounded-xl shrink-0">
+                                <Plus className="h-4 w-4" />
+                            </Button>
+                        </div>
 
-                            <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground">Notas sobre el cumplimiento y revisión del puente:</Label>
-                                <Textarea
-                                    placeholder="Obstáculos encontrados por el paciente, pensamientos automáticos al intentar la tarea, aprendizajes..."
-                                    value={bridgeNotes}
-                                    onChange={(e) => setBridgeNotes(e.target.value)}
-                                    className="min-h-[80px] bg-background border-border text-sm"
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
+                        <div className="space-y-1.5 pt-1">
+                            <Label className="text-xs text-muted-foreground">Notas sobre el cumplimiento y revisión del puente:</Label>
+                            <Textarea
+                                placeholder="Obstáculos encontrados por el paciente, pensamientos automáticos al intentar la tarea, aprendizajes..."
+                                value={bridgeNotes}
+                                onChange={(e) => setBridgeNotes(e.target.value)}
+                                className="min-h-[80px] bg-background border-border text-sm rounded-xl p-3"
+                            />
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
-                {/* Mental Status Exam Section */}
-                {hasSection('mental_status') && (
+            {/* ── Mental Status Exam Section ── */}
+            {hasSection('mental_status') && (
+                <div className="w-full">
                     <MentalStatusSection
                         value={mentalStatus}
                         onChange={setMentalStatus}
                     />
-                )}
+                </div>
+            )}
 
-                {/* Agenda Section */}
-                {hasSection('agenda') && (
-                    <Card className="border-border shadow-sm">
-                        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                            <CardTitle className="text-sm font-bold text-primary">{getLabel('agenda', 'Agenda / Conceptualización')}</CardTitle>
-                            <Button variant="outline" size="sm" onClick={handleAddAgendaItem} className="h-8 gap-1.5 font-bold">
-                                <Plus className="h-3.5 w-3.5" /> Agregar Tema
-                            </Button>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            {agendaItems.map((item, index) => (
-                                <div key={item.id} className="space-y-4 p-4 rounded-xl border border-border bg-muted/30 relative">
+            {/* ── Agenda Section ── */}
+            {hasSection('agenda') && (
+                <Card className="border-border shadow-xs w-full bg-card rounded-2xl overflow-hidden">
+                    <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50 flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle className="text-sm font-bold text-primary">
+                                {getLabel('agenda', 'Agenda / Conceptualización')}
+                            </CardTitle>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Estructuración de temas, situaciones detonantes y cogniciones tratadas
+                            </p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={handleAddAgendaItem} className="h-8 gap-1.5 font-bold rounded-xl">
+                            <Plus className="h-3.5 w-3.5" /> Agregar Tema
+                        </Button>
+                    </CardHeader>
+                    <CardContent className="p-6 space-y-6">
+                        {agendaItems.length === 0 ? (
+                            <div className="p-8 text-center border-2 border-dashed border-border/60 rounded-2xl">
+                                <p className="text-sm font-semibold text-muted-foreground mb-2">No hay temas en la agenda</p>
+                                <Button variant="zen" size="sm" onClick={handleAddAgendaItem} className="gap-1.5 text-xs rounded-xl">
+                                    <Plus className="h-3.5 w-3.5" /> Agregar Primer Punto de Agenda
+                                </Button>
+                            </div>
+                        ) : (
+                            agendaItems.map((item, index) => (
+                                <div key={item.id} className="space-y-4 p-5 rounded-2xl border border-border bg-muted/20 relative">
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="absolute top-2 right-2 h-7 w-7 text-muted-foreground hover:text-destructive"
+                                        className="absolute top-3 right-3 h-7 w-7 text-muted-foreground hover:text-destructive rounded-lg"
                                         onClick={() => setAgendaItems(agendaItems.filter(i => i.id !== item.id))}
                                     >
                                         <X className="h-4 w-4" />
                                     </Button>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70">Tema / Problema</Label>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/80">Tema / Problema</Label>
                                             <Input
                                                 value={item.topic}
                                                 onChange={(e) => updateAgendaItem(index, 'topic', e.target.value)}
                                                 placeholder="¿De qué trata este punto?"
-                                                className="bg-background h-9 text-sm"
+                                                className="bg-background h-10 text-sm rounded-xl"
                                             />
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70">Situación</Label>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/80">Situación</Label>
                                             <Input
                                                 value={item.situation}
                                                 onChange={(e) => updateAgendaItem(index, 'situation', e.target.value)}
                                                 placeholder="¿Qué pasó exactamente?"
-                                                className="bg-background h-9 text-sm"
+                                                className="bg-background h-10 text-sm rounded-xl"
                                             />
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70">Pensamientos</Label>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/80">Pensamientos</Label>
                                             <Textarea
                                                 value={item.thoughts}
                                                 onChange={(e) => updateAgendaItem(index, 'thoughts', e.target.value)}
-                                                placeholder="Cogniciones / Creencias"
-                                                className="bg-background min-h-[60px] text-sm"
+                                                placeholder="Cogniciones / Creencias automáticas..."
+                                                className="bg-background min-h-[70px] text-sm rounded-xl p-3"
                                             />
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70">Emociones</Label>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/80">Emociones</Label>
                                             <Input
                                                 value={item.emotions}
                                                 onChange={(e) => updateAgendaItem(index, 'emotions', e.target.value)}
-                                                placeholder="Sentimientos e intensidad"
-                                                className="bg-background h-9 text-sm"
+                                                placeholder="Sentimientos e intensidad (ej: Ansiedad 8/10)..."
+                                                className="bg-background h-10 text-sm rounded-xl"
                                             />
                                         </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70">Intervenciones / Reestructuración</Label>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/80">Intervenciones / Reestructuración</Label>
                                         <Textarea
                                             value={item.interventions}
                                             onChange={(e) => updateAgendaItem(index, 'interventions', e.target.value)}
-                                            placeholder="¿Qué técnicas se aplicaron?"
-                                            className="bg-background min-h-[60px] text-sm"
+                                            placeholder="¿Qué técnicas se aplicaron? Cuestionamiento socrático, experimentos conductuales..."
+                                            className="bg-background min-h-[70px] text-sm rounded-xl p-3"
                                         />
                                     </div>
                                 </div>
-                            ))}
-                        </CardContent>
-                    </Card>
-                )}
+                            ))
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
-                {/* Beliefs Section */}
-                {hasSection('beliefs') && (
-                    <Card className="border-border shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-bold text-primary">{getLabel('beliefs', 'Creencias Nucleares')}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold text-muted-foreground">Creencias Identificadas</Label>
-                                <Textarea
-                                    value={coreBeliefs}
-                                    onChange={(e) => setCoreBeliefs(e.target.value)}
-                                    placeholder="Creencias nucleares o intermedias..."
-                                    className="min-h-[100px]"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold text-muted-foreground">Creencias Alternativas</Label>
-                                <Textarea
-                                    value={alternativeBeliefs}
-                                    onChange={(e) => setAlternativeBeliefs(e.target.value)}
-                                    placeholder="Nuevas perspectivas desarrolladas..."
-                                    className="min-h-[100px]"
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {/* Dynamic Text Areas (Generic sections from template) */}
-                {template?.sections.filter(s => ['free_text', 'techniques', 'observations', 'goals', 'homework'].includes(s)).map(sKey => (
-                    <Card key={sKey} className="border-border shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-bold text-primary">{getLabel(sKey, sKey)}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <Textarea
-                                value={dynamicFields[sKey] || ''}
-                                onChange={(e) => setDynamicFields({ ...dynamicFields, [sKey]: e.target.value })}
-                                placeholder={`Escribe aquí...`}
-                                className="min-h-[120px]"
-                            />
-                        </CardContent>
-                    </Card>
-                ))}
-
-                {/* Action Plan Section */}
-                {hasSection('action_plan') && (
-                    <Card className="border-border shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-bold text-primary">{getLabel('action_plan', 'Plan de Acción / Tareas')}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                {actionPlanItems.map((item, index) => (
-                                    <div key={index} className="flex items-center justify-between p-2 rounded-lg bg-emerald-50/50 border border-emerald-100 group">
-                                        <div className="flex items-center gap-2">
-                                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                                            <span className="text-sm font-medium text-emerald-900">{item}</span>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            onClick={() => setActionPlanItems(actionPlanItems.filter((_, i) => i !== index))}
-                                        >
-                                            <X className="h-3 w-3" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="flex gap-2">
-                                <Input
-                                    placeholder="Siguiente paso, tarea o recomendación..."
-                                    value={newActionPlanItem}
-                                    onChange={(e) => setNewActionPlanItem(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddActionPlanItem()}
-                                />
-                                <Button variant="zen" size="icon" onClick={handleAddActionPlanItem}>
-                                    <Plus className="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {/* CIE-10 Selector */}
-                <Card className="border-border shadow-sm bg-muted/20">
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-bold text-muted-foreground flex items-center gap-2">
-                            <Save className="h-4 w-4" /> Diagnóstico y Clasificación (NOM-024)
+            {/* ── Beliefs Section ── */}
+            {hasSection('beliefs') && (
+                <Card className="border-border shadow-xs w-full bg-card rounded-2xl overflow-hidden">
+                    <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50">
+                        <CardTitle className="text-sm font-bold text-primary">
+                            {getLabel('beliefs', 'Creencias Nucleares e Intermedias')}
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                            <Label className="text-xs font-bold text-muted-foreground">Búsqueda CIE-10</Label>
-                            <CIE10Selector onSelect={setCie10} />
-                            {cie10 && (
-                                <div className="mt-2 p-3 bg-white rounded-lg border border-primary/20 flex items-center justify-between">
-                                    <div>
-                                        <span className="font-bold text-primary mr-2">{cie10.code}</span>
-                                        <span className="text-sm text-muted-foreground">{cie10.description}</span>
-                                    </div>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCie10(null)}>
-                                        <X className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            )}
+                            <Label className="text-xs font-bold text-muted-foreground">Creencias Identificadas</Label>
+                            <Textarea
+                                value={coreBeliefs}
+                                onChange={(e) => setCoreBeliefs(e.target.value)}
+                                placeholder="Creencias nucleares o intermedias identificadas..."
+                                className="min-h-[120px] rounded-xl p-3 text-sm"
+                            />
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-xs font-bold text-muted-foreground">Impresión Diagnóstica</Label>
+                            <Label className="text-xs font-bold text-muted-foreground">Creencias Alternativas / Adaptativas</Label>
                             <Textarea
-                                placeholder="Detalles específicos del diagnóstico..."
-                                value={diagnosticoPrincipal}
-                                onChange={(e) => setDiagnosticoPrincipal(e.target.value)}
+                                value={alternativeBeliefs}
+                                onChange={(e) => setAlternativeBeliefs(e.target.value)}
+                                placeholder="Nuevas perspectivas más funcionales desarrolladas..."
+                                className="min-h-[120px] rounded-xl p-3 text-sm"
                             />
                         </div>
                     </CardContent>
                 </Card>
-            </div>
+            )}
 
-            {/* Modal de Vista Rápida de Sesión Previa (Continuidad Beck TCC) */}
+            {/* ── Action Plan Section ── */}
+            {hasSection('action_plan') && (
+                <Card className="border-border shadow-xs w-full bg-card rounded-2xl overflow-hidden">
+                    <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50">
+                        <CardTitle className="text-sm font-bold text-primary">
+                            {getLabel('action_plan', 'Plan de Acción / Tareas para Casa')}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 space-y-4">
+                        <div className="space-y-2">
+                            {actionPlanItems.map((item, index) => (
+                                <div key={index} className="flex items-center justify-between p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 group">
+                                    <div className="flex items-center gap-2.5">
+                                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                        <span className="text-sm font-medium text-foreground">{item}</span>
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg"
+                                        onClick={() => setActionPlanItems(actionPlanItems.filter((_, i) => i !== index))}
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex gap-2">
+                            <Input
+                                placeholder="Siguiente paso, tarea intersesión o recomendación..."
+                                value={newActionPlanItem}
+                                onChange={(e) => setNewActionPlanItem(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddActionPlanItem()}
+                                className="h-10 text-sm rounded-xl"
+                            />
+                            <Button variant="zen" size="icon" onClick={handleAddActionPlanItem} className="h-10 w-10 rounded-xl shrink-0">
+                                <Plus className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* ── Modal de Vista Rápida de Sesión Previa (Continuidad Beck TCC) ── */}
             <Dialog open={showPrevNoteModal} onOpenChange={setShowPrevNoteModal}>
-                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl">
                     <DialogHeader>
                         <div className="flex items-center gap-2 text-primary font-semibold text-xs tracking-wide uppercase">
                             <FileText className="h-4 w-4" />
@@ -906,13 +1023,13 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
 
                     {previousNote && (
                         <div className="space-y-4 py-2 text-sm">
-                            {/* Diagnóstico / CIE-10 previo */}
+                            {/* Diagnóstico / CIE previo */}
                             {(previousNote.cie10_code || previousNote.diagnostico_principal) && (
-                                <div className="p-3 bg-red-50/50 border border-red-200/60 rounded-lg">
-                                    <div className="text-xs font-semibold text-red-800 mb-1 flex items-center gap-1.5">
+                                <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                                    <div className="text-xs font-semibold text-primary mb-1 flex items-center gap-1.5">
                                         🏥 Diagnóstico registrado
                                     </div>
-                                    <p className="text-xs text-red-950 font-medium">
+                                    <p className="text-xs text-foreground font-medium">
                                         {previousNote.cie10_code && (
                                             <span className="font-bold mr-1">[{previousNote.cie10_code}]</span>
                                         )}
@@ -923,7 +1040,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
 
                             {/* Estado de ánimo */}
                             {previousNote.mood_rating !== undefined && previousNote.mood_rating !== null && (
-                                <div className="p-3 bg-muted/30 border rounded-lg space-y-1">
+                                <div className="p-3 bg-muted/30 border rounded-xl space-y-1">
                                     <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground">
                                         <span>Estado de Ánimo Registrado</span>
                                         <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
@@ -938,11 +1055,11 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                                 </div>
                             )}
 
-                            {/* Tareas / Plan de Acción previo */}
-                            <div className="p-3 bg-blue-50/40 border border-blue-200/60 rounded-lg space-y-2">
-                                <div className="text-xs font-semibold text-blue-900 flex items-center justify-between">
+                            {/* Tareas previo */}
+                            <div className="p-3 bg-blue-50/40 dark:bg-blue-950/20 border border-blue-200/60 rounded-xl space-y-2">
+                                <div className="text-xs font-semibold text-blue-900 dark:text-blue-300 flex items-center justify-between">
                                     <span>Tareas y Plan de Acción Acordados</span>
-                                    <span className="text-[11px] text-blue-600 font-normal">
+                                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-normal">
                                         {Array.isArray(previousNote.action_plan) ? previousNote.action_plan.length : 0} items
                                     </span>
                                 </div>
@@ -951,7 +1068,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                                         {previousNote.action_plan.map((item: any, i: number) => {
                                             const text = typeof item === 'string' ? item : item?.task || '';
                                             return (
-                                                <li key={i} className="flex items-start gap-2 text-blue-950">
+                                                <li key={i} className="flex items-start gap-2 text-foreground">
                                                     <span className="text-blue-500 font-bold">•</span>
                                                     <span>{text}</span>
                                                 </li>
@@ -962,42 +1079,6 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                                     <p className="text-xs text-muted-foreground italic">No se registraron tareas en esa sesión.</p>
                                 )}
                             </div>
-
-                            {/* Agenda y temas tratados */}
-                            {Array.isArray(previousNote.agenda) && previousNote.agenda.length > 0 && (
-                                <div className="p-3 bg-muted/20 border rounded-lg space-y-2">
-                                    <div className="text-xs font-semibold text-foreground">
-                                        Agenda y Temas de la Sesión
-                                    </div>
-                                    <div className="space-y-2">
-                                        {previousNote.agenda.map((ag: any, i: number) => (
-                                            <div key={i} className="text-xs p-2 bg-background border rounded">
-                                                <div className="font-semibold text-primary">{ag.topic || `Tema #${i + 1}`}</div>
-                                                {ag.situation && <p className="text-muted-foreground mt-0.5"><span className="font-medium">Situación:</span> {ag.situation}</p>}
-                                                {ag.thoughts && <p className="text-muted-foreground mt-0.5"><span className="font-medium">Pensamientos:</span> {ag.thoughts}</p>}
-                                                {ag.interventions && <p className="text-muted-foreground mt-0.5"><span className="font-medium">Intervención:</span> {ag.interventions}</p>}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Creencias nucleares */}
-                            {previousNote.beliefs && (previousNote.beliefs.core || previousNote.beliefs.alternative) && (
-                                <div className="p-3 bg-purple-50/40 border border-purple-200/60 rounded-lg space-y-1.5 text-xs">
-                                    <div className="font-semibold text-purple-900">Creencias y Reestructuración</div>
-                                    {previousNote.beliefs.core && (
-                                        <p className="text-purple-950">
-                                            <span className="font-medium text-purple-800">Creencia central:</span> {previousNote.beliefs.core}
-                                        </p>
-                                    )}
-                                    {previousNote.beliefs.alternative && (
-                                        <p className="text-purple-950">
-                                            <span className="font-medium text-purple-800">Creencia adaptativa:</span> {previousNote.beliefs.alternative}
-                                        </p>
-                                    )}
-                                </div>
-                            )}
                         </div>
                     )}
 
@@ -1011,7 +1092,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                                 handleImportFromPreviousSession();
                                 setShowPrevNoteModal(false);
                             }}
-                            className="gap-1.5 text-xs"
+                            className="gap-1.5 text-xs rounded-xl"
                         >
                             <Zap className="h-3.5 w-3.5" />
                             {hasImportedFromPrev ? 'Tareas ya importadas' : 'Importar tareas al puente de hoy'}
@@ -1021,7 +1102,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                             variant="outline"
                             size="sm"
                             onClick={() => setShowPrevNoteModal(false)}
-                            className="text-xs"
+                            className="text-xs rounded-xl"
                         >
                             Cerrar
                         </Button>
@@ -1029,9 +1110,12 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                 </DialogContent>
             </Dialog>
 
+            {/* ── Botones de Guardado Inferior ── */}
             <div className="flex justify-end gap-3 pt-6 border-t border-border mt-8">
-                <Button variant="outline" onClick={onCancel}>Cancelar</Button>
-                <Button variant="zen" onClick={handleSave} className="gap-2">
+                <Button variant="outline" onClick={onCancel} className="h-11 px-6 rounded-xl font-bold">
+                    Cancelar
+                </Button>
+                <Button variant="zen" onClick={handleSave} className="h-11 px-8 gap-2 font-bold rounded-xl shadow-lg shadow-primary/20">
                     <Save className="h-4 w-4" /> Guardar Nota
                 </Button>
             </div>

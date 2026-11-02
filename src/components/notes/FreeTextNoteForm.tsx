@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,9 +12,10 @@ import {
   User,
   Sparkles,
   Activity,
+  Plus,
 } from 'lucide-react';
 import PatientAutocomplete from '@/components/patients/PatientAutocomplete';
-import CIE10Selector from '@/components/notes/CIE10Selector';
+import CIEDiagnosisSelector, { DiagnosisItem } from '@/components/notes/CIEDiagnosisSelector';
 import MiniEditor from '@/components/ui/MiniEditor';
 import { toast } from 'sonner';
 
@@ -27,6 +28,7 @@ interface FreeTextNoteFormProps {
   initialText?: string;
   initialCie10Code?: string;
   initialCie10Description?: string;
+  initialDiagnoses?: DiagnosisItem[];
   onSave: (data: {
     patientId?: string;
     patientName?: string;
@@ -36,6 +38,7 @@ interface FreeTextNoteFormProps {
     text: string;
     cie10Code?: string;
     cie10Description?: string;
+    diagnoses?: DiagnosisItem[];
   }) => void;
   onCancel: () => void;
 }
@@ -49,6 +52,7 @@ export default function FreeTextNoteForm({
   initialText = '',
   initialCie10Code,
   initialCie10Description,
+  initialDiagnoses = [],
   onSave,
   onCancel,
 }: FreeTextNoteFormProps) {
@@ -58,10 +62,23 @@ export default function FreeTextNoteForm({
   const [sessionNumber, setSessionNumber] = useState(Number(initialSessionNumber) || 1);
   const [topic, setTopic] = useState(initialTopic);
   const [editorText, setEditorText] = useState(initialText);
-  const [cie10, setCie10] = useState<{ code: string; description: string } | null>(
-    initialCie10Code ? { code: initialCie10Code, description: initialCie10Description || '' } : null
-  );
-  const [showCie10, setShowCie10] = useState(false);
+
+  // Diagnósticos seleccionados (CIE-11 / CIE-10)
+  const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>(() => {
+    if (initialDiagnoses && initialDiagnoses.length > 0) return initialDiagnoses;
+    if (initialCie10Code) {
+      const isCie11 = initialCie10Code.startsWith('6') || initialCie10Code.startsWith('7') || initialCie10Code.startsWith('Q');
+      return [{
+        system: isCie11 ? 'CIE-11' : 'CIE-10',
+        code: initialCie10Code,
+        description: initialCie10Description || '',
+        group: 'Diagnóstico Clínico'
+      }];
+    }
+    return [];
+  });
+
+  const [showDxSelector, setShowDxSelector] = useState(diagnoses.length > 0);
 
   const handleSave = () => {
     const cleanText = editorText.replace(/<[^>]*>/g, '').trim();
@@ -70,6 +87,8 @@ export default function FreeTextNoteForm({
       return;
     }
 
+    const primaryDx = diagnoses[0];
+
     onSave({
       patientId: patientId || undefined,
       patientName: patientName || undefined,
@@ -77,13 +96,14 @@ export default function FreeTextNoteForm({
       sessionNumber: Number(sessionNumber) || 1,
       topic: topic.trim() || 'Nota de Evolución Clínica',
       text: editorText,
-      cie10Code: cie10?.code,
-      cie10Description: cie10?.description,
+      cie10Code: primaryDx?.code,
+      cie10Description: primaryDx?.description,
+      diagnoses,
     });
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="w-full space-y-6 animate-fade-in pb-16">
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-card p-6 rounded-2xl border border-border shadow-xs">
         <div className="flex items-center gap-3">
@@ -100,7 +120,7 @@ export default function FreeTextNoteForm({
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Espacio flexible sin secciones predefinidas para redactar y editar tus consultas
+              Espacio flexible de pantalla completa para redactar y editar tus consultas sin restricciones
             </p>
           </div>
         </div>
@@ -130,17 +150,17 @@ export default function FreeTextNoteForm({
         </div>
       </div>
 
-      {/* ── Metadata Row ── */}
-      <Card className="border-border shadow-xs">
-        <CardContent className="p-5">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Paciente */}
-            <div>
-              <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5 mb-1.5">
+      {/* ── Metadata Row (Abarca la pantalla limpiamente) ── */}
+      <Card className="border-border shadow-xs w-full">
+        <CardContent className="p-6 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
+            {/* Paciente (4 cols) */}
+            <div className="lg:col-span-4 space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
                 <User className="h-3.5 w-3.5" /> Paciente
               </Label>
               {initialPatientId ? (
-                <div className="h-10 px-3 rounded-lg bg-muted/30 border border-border/60 flex items-center font-bold text-sm truncate">
+                <div className="h-11 px-3.5 rounded-xl bg-muted/40 border border-border/60 flex items-center font-bold text-sm truncate">
                   {patientName || 'Paciente seleccionado'}
                 </div>
               ) : (
@@ -155,114 +175,104 @@ export default function FreeTextNoteForm({
               )}
             </div>
 
-            {/* Título o Tema */}
-            <div className="md:col-span-2">
-              <Label className="text-xs font-bold text-muted-foreground mb-1.5 block">
-                Título o Tema de la Consulta
+            {/* Título o Tema (5 cols) */}
+            <div className="lg:col-span-5 space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground block">
+                Título o Asunto de la Consulta
               </Label>
               <Input
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="Ej: Sesión de seguimiento, entrevista inicial, etc."
-                className="h-10 text-sm"
+                placeholder="Ej: Sesión de seguimiento, entrevista inicial, reestructuración..."
+                className="h-11 text-sm rounded-xl"
               />
             </div>
 
-            {/* Fecha y Sesión */}
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <Label className="text-xs font-bold text-muted-foreground mb-1.5 flex items-center gap-1">
-                  <Calendar className="h-3.5 w-3.5" /> Fecha
-                </Label>
-                <Input
-                  type="date"
-                  value={sessionDate}
-                  onChange={(e) => setSessionDate(e.target.value)}
-                  className="h-10 text-sm"
-                />
-              </div>
-              <div className="w-24">
-                <Label className="text-xs font-bold text-muted-foreground mb-1.5 block">
-                  Sesión #
-                </Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={sessionNumber}
-                  onChange={(e) => setSessionNumber(Number(e.target.value) || 1)}
-                  className="h-10 text-sm font-bold text-center"
-                />
-              </div>
+            {/* Fecha (2 cols) */}
+            <div className="lg:col-span-2 space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" /> Fecha
+              </Label>
+              <Input
+                type="date"
+                value={sessionDate}
+                onChange={(e) => setSessionDate(e.target.value)}
+                className="h-11 text-sm rounded-xl"
+              />
+            </div>
+
+            {/* Sesión # (1 col) */}
+            <div className="lg:col-span-1 space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground block text-center">
+                Sesión #
+              </Label>
+              <Input
+                type="number"
+                min="1"
+                value={sessionNumber}
+                onChange={(e) => setSessionNumber(Number(e.target.value) || 1)}
+                className="h-11 text-sm font-bold text-center rounded-xl"
+              />
             </div>
           </div>
 
-          {/* Optional CIE-10 Diagnostic Badge & Toggle */}
-          <div className="mt-4 pt-4 border-t border-border/50 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCie10(!showCie10)}
-                className="h-8 text-xs font-semibold gap-1.5"
-              >
-                🩺 {cie10 ? `CIE-10: ${cie10.code}` : '+ Asociar Diagnóstico CIE-10 (Opcional)'}
-              </Button>
-              {cie10 && (
-                <span className="text-xs text-muted-foreground truncate max-w-sm">
-                  {cie10.description}
-                </span>
-              )}
-            </div>
-
-            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <Sparkles className="h-3 w-3 text-primary" />
-              Edición en texto enriquecido con guardado en tiempo real
-            </span>
-          </div>
-
-          {showCie10 && (
-            <div className="mt-3 p-4 bg-muted/30 rounded-xl border border-border/60 animate-in fade-in">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-xs">Catálogo de Diagnósticos CIE-10</span>
+          {/* ── Diagnóstico CIE-11 / CIE-10 (Sección integrada) ── */}
+          <div className="pt-4 border-t border-border/60">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2">
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant={showDxSelector ? "secondary" : "outline"}
                   size="sm"
-                  onClick={() => setShowCie10(false)}
-                  className="h-6 w-6 p-0"
+                  onClick={() => setShowDxSelector(!showDxSelector)}
+                  className="h-9 text-xs font-bold gap-1.5 rounded-xl"
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <Plus className="h-3.5 w-3.5" />
+                  {diagnoses.length > 0
+                    ? `Diagnósticos Asociados (${diagnoses.length})`
+                    : 'Añadir Diagnóstico CIE-11 / CIE-10'}
                 </Button>
+                {diagnoses.length > 0 && !showDxSelector && (
+                  <span className="text-xs text-muted-foreground">
+                    {diagnoses.map(d => `${d.system} ${d.code}`).join(', ')}
+                  </span>
+                )}
               </div>
-              <CIE10Selector
-                value={cie10}
-                onChange={(selected) => {
-                  setCie10(selected);
-                  setShowCie10(false);
-                }}
-              />
+
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Sparkles className="h-3 w-3 text-primary" />
+                Los diagnósticos seleccionados se anexan automáticamente al descargar la nota
+              </span>
             </div>
-          )}
+
+            {showDxSelector && (
+              <div className="p-4 sm:p-5 bg-muted/20 rounded-2xl border border-border/70 animate-in fade-in">
+                <CIEDiagnosisSelector
+                  selectedDiagnoses={diagnoses}
+                  onDiagnosesChange={setDiagnoses}
+                />
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      {/* ── Rich Text Editor Document Surface ── */}
-      <Card className="border-border shadow-md overflow-hidden bg-background">
-        <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-900/30 border-b border-border/60 flex items-center justify-between">
-          <span className="text-xs font-black uppercase tracking-widest text-primary/70 flex items-center gap-2">
+      {/* ── Rich Text Editor Document Surface (Abarca toda la pantalla) ── */}
+      <Card className="border-border shadow-md overflow-hidden bg-background w-full">
+        <div className="p-4 sm:p-5 bg-muted/20 border-b border-border/60 flex items-center justify-between">
+          <span className="text-xs font-black uppercase tracking-widest text-primary/80 flex items-center gap-2">
             <Activity className="h-4 w-4" /> Cuerpo de la Nota Clínica
           </span>
-          <span className="text-xs text-muted-foreground font-medium">
-            Formato: Títulos, Negritas, Viñetas, Listas
+          <span className="text-xs text-muted-foreground font-medium hidden sm:inline">
+            Formato enriquecido: Encabezados, Negritas, Listas, Viñetas y Citas
           </span>
         </div>
 
-        <div className="p-4 sm:p-6">
+        <div className="p-4 sm:p-8">
           <MiniEditor
             content={editorText}
             onChange={(html) => setEditorText(html)}
-            className="border-none shadow-none min-h-[450px]"
+            className="border-none shadow-none min-h-[500px] w-full text-base leading-relaxed"
           />
         </div>
       </Card>

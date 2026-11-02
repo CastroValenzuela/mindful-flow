@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +32,7 @@ import {
   Download,
   Sparkles,
   Settings,
+  Printer,
   Pen
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -139,7 +142,12 @@ const Notes = () => {
     }
   }, [searchParams]);
 
-  const handleDownloadNote = async (note: SessionNote) => {
+  const [includeDiagnosisInExport, setIncludeDiagnosisInExport] = useState(true);
+
+  const handleDownloadNote = async (
+    note: SessionNote,
+    options: { includeDiagnosis?: boolean; autoPrint?: boolean } = { includeDiagnosis: includeDiagnosisInExport }
+  ) => {
     setIsExportingNote(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -166,9 +174,10 @@ const Notes = () => {
       generateSessionNotePDF(
         { name: selectedPatientName, id: selectedPatient!, date_of_birth: dateOfBirth },
         note as any,
-        prof || undefined
+        prof || undefined,
+        options
       );
-      toast.success('Reporte generado con éxito');
+      toast.success(options?.autoPrint ? 'Abriendo vista de impresión...' : 'Reporte generado con éxito');
     } catch (err: any) {
       console.error('Error generating PDF:', err);
       toast.error('Error al generar PDF: ' + err.message);
@@ -320,6 +329,9 @@ const Notes = () => {
         note_type: 'free_text',
         topic: data.topic,
         text: data.text,
+        diagnoses: data.diagnoses || [],
+        cie11_code: data.diagnoses?.find((d: any) => d.system === 'CIE-11')?.code,
+        cie11_description: data.diagnoses?.find((d: any) => d.system === 'CIE-11')?.description,
       },
       cie10_code: data.cie10Code || null,
       cie10_description: data.cie10Description || null,
@@ -481,7 +493,12 @@ const Notes = () => {
                       cie10_description: noteData.cie10Description || null,
                       diagnostico_principal: noteData.diagnosticoPrincipal || null,
                       mental_status: noteData.mentalStatus || null,
-                      content: noteData,
+                      content: {
+                        ...noteData,
+                        diagnoses: noteData.diagnoses || [],
+                        cie11_code: noteData.diagnoses?.find((d: any) => d.system === 'CIE-11')?.code,
+                        cie11_description: noteData.diagnoses?.find((d: any) => d.system === 'CIE-11')?.description,
+                      },
                       organization_id: organization?.id,
                       template_id: selectedTemplateId
                     });
@@ -891,7 +908,7 @@ const Notes = () => {
                                 variant="zen"
                                 size="sm"
                                 className="h-10 px-4 rounded-xl gap-2 font-bold shadow-sm"
-                                onClick={() => handleDownloadNote(selectedNoteData)}
+                                onClick={() => handleDownloadNote(selectedNoteData, { includeDiagnosis: includeDiagnosisInExport })}
                                 disabled={isExportingNote}
                               >
                                 {isExportingNote ? (
@@ -900,6 +917,31 @@ const Notes = () => {
                                   <Download className="h-4 w-4" />
                                 )}
                                 Descargar Reporte
+                              </Button>
+
+                              {/* Opción de Quitar o Dejar Diagnóstico en descarga / impresión */}
+                              <div className="flex items-center gap-2 bg-muted/50 border border-border/70 px-3 py-1.5 rounded-xl text-xs">
+                                <Label htmlFor="toggle-export-dx" className="text-xs font-semibold cursor-pointer select-none">
+                                  {includeDiagnosisInExport ? 'Dx incluido' : 'Dx omitido'}
+                                </Label>
+                                <Switch
+                                  id="toggle-export-dx"
+                                  checked={includeDiagnosisInExport}
+                                  onCheckedChange={setIncludeDiagnosisInExport}
+                                  title="Quitar o dejar diagnóstico en caso de necesitar imprimir para paciente o trámites"
+                                />
+                              </div>
+
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-10 px-3.5 rounded-xl gap-2 font-bold shadow-xs hover:bg-muted"
+                                onClick={() => handleDownloadNote(selectedNoteData, { includeDiagnosis: includeDiagnosisInExport, autoPrint: true })}
+                                disabled={isExportingNote}
+                                title="Imprimir nota clínica directamente"
+                              >
+                                <Printer className="h-4 w-4" />
+                                <span className="hidden sm:inline">Imprimir</span>
                               </Button>
 
                               {confirmDelete ? (
@@ -952,12 +994,32 @@ const Notes = () => {
                       <div className="max-w-4xl mx-auto bg-background rounded-sm shadow-2xl border border-border/50 min-h-[850px] p-8 sm:p-16 ring-1 ring-slate-900/5">
                         
                         {/* Quick Metadata inside document */}
-                        {(!isEditing && (selectedNoteData.cie10_code || selectedNoteData.mood?.rating != null)) && (
+                        {(!isEditing && (selectedNoteData.cie10_code || selectedNoteData.content?.diagnoses?.length || selectedNoteData.mood?.rating != null)) && (
                           <div className="flex flex-wrap gap-4 mb-10 pb-6 border-b border-border/40">
-                            {selectedNoteData.cie10_code && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {selectedNoteData.content?.diagnoses && selectedNoteData.content.diagnoses.length > 0 ? (
+                                selectedNoteData.content.diagnoses.map((dx: any) => (
+                                  <div key={dx.code} className="flex items-center gap-2 bg-muted/60 px-3 py-1.5 rounded-xl border border-border/60">
+                                    <span className="text-[10px] font-black bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+                                      {dx.system} {dx.code}
+                                    </span>
+                                    <span className="text-xs font-semibold text-foreground truncate max-w-[220px]">
+                                      {dx.description}
+                                    </span>
+                                  </div>
+                                ))
+                              ) : Boolean(selectedNoteData.cie10_code) && (
                               <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-800/50 px-4 py-2 rounded-xl">
                                 <span className="text-[10px] font-black bg-primary text-white px-2 py-0.5 rounded-full">{selectedNoteData.cie10_code}</span>
                                 <span className="text-xs font-bold text-muted-foreground truncate max-w-[200px]">{selectedNoteData.cie10_description}</span>
+                              </div>
+                            )}
+                            <Badge variant={includeDiagnosisInExport ? "outline" : "secondary"} className="text-[10px] font-bold">
+                              {includeDiagnosisInExport ? '✓ Visible en reporte' : '⊘ Omitido en reporte'}
+                            </Badge>
+                          </div>
+                          {false && (
+                            <div>
                               </div>
                             )}
                             {selectedNoteData.mood?.rating != null && (
