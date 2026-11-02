@@ -1,3 +1,5 @@
+import RichConsentEditor from '@/components/consent/RichConsentEditor';
+import DOMPurify from 'dompurify';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -128,7 +130,8 @@ const ConsentFormView = ({ onSaved, onCancel }: ConsentFormViewProps) => {
 
         doc.setFontSize(10);
         doc.setTextColor(40, 40, 40);
-        const lines = doc.splitTextToSize(consentBody, contentW);
+        const cleanText = consentBody.replace(/<br\s*[\/]?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').trim();
+        const lines = doc.splitTextToSize(cleanText, contentW);
         let y = 58;
         lines.forEach((line: string) => {
             if (y > 250) { doc.addPage(); y = 20; }
@@ -359,15 +362,15 @@ const ConsentFormView = ({ onSaved, onCancel }: ConsentFormViewProps) => {
                     <div className="flex justify-center py-6">
                         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     </div>
-                ) : (
-                    <Textarea
+                ) : isEditingText ? (
+                    <RichConsentEditor
                         value={consentBody}
-                        onChange={isEditingText ? (e) => setConsentBody(e.target.value) : undefined}
-                        readOnly={!isEditingText}
-                        rows={12}
-                        className={`text-sm font-mono leading-relaxed resize-none ${
-                            isEditingText ? '' : 'bg-muted/30'
-                        }`}
+                        onChange={setConsentBody}
+                    />
+                ) : (
+                    <div
+                        className="p-6 rounded-2xl bg-muted/20 border border-border/60 text-sm leading-relaxed max-h-[420px] overflow-y-auto font-sans [&_p]:mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3"
+                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(consentBody) }}
                     />
                 )}
                 {isEditingText && (

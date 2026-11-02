@@ -26,6 +26,8 @@ import {
     User,
     Calendar,
     Activity,
+    ShieldAlert,
+    ClipboardList,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -535,83 +537,102 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                         </div>
                     </div>
 
-                    {/* Fila 2: Diagnóstico Clínico (CIE-11 / CIE-10) */}
-                    <div className="pt-4 border-t border-border/60 space-y-3">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                                🏥 Diagnóstico Clínico y Clasificación (CIE-11 / CIE-10)
-                            </Label>
-                            <span className="text-[11px] text-muted-foreground hidden sm:inline">
-                                Puedes seleccionar y añadir uno o varios diagnósticos a la nota
-                            </span>
-                        </div>
-
-                        <CIEDiagnosisSelector
-                            selectedDiagnoses={diagnoses}
-                            onDiagnosesChange={setDiagnoses}
-                            value={cie10}
-                            onChange={setCie10}
-                        />
-
-                        <div className="space-y-1.5 pt-1">
-                            <Label className="text-xs font-semibold text-muted-foreground">
-                                Impresión diagnóstica complementaria / Motivo principal de atención (texto libre)
-                            </Label>
-                            <Input
-                                type="text"
-                                value={diagnosticoPrincipal}
-                                onChange={(e) => setDiagnosticoPrincipal(e.target.value)}
-                                placeholder="Ej: Trastorno de ansiedad generalizada con síntomas afectivos leves, en proceso de evaluación..."
-                                className="h-11 rounded-xl text-sm"
-                            />
+                    {/* Cuadrito Rojo Arriba: Diagnóstico Principal (NOM-024 / CIE) */}
+                    <div className="pt-2">
+                        <div className="p-4 rounded-2xl bg-rose-50/70 dark:bg-rose-950/20 border-2 border-rose-200 dark:border-rose-900/60 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-xs font-black uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
+                                    <ShieldAlert className="h-4 w-4" /> Diagnóstico CIE (NOM-024)
+                                </Label>
+                                <span className="text-[11px] font-semibold text-rose-600/80 hidden sm:inline">
+                                    Identificador clínico oficial
+                                </span>
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-rose-800 dark:text-rose-300">
+                                    Diagnóstico principal (texto libre)
+                                </Label>
+                                <Input
+                                    type="text"
+                                    value={diagnosticoPrincipal}
+                                    onChange={(e) => setDiagnosticoPrincipal(e.target.value)}
+                                    placeholder="Ej: Trastorno de ansiedad generalizada con episodio depresivo leve..."
+                                    className="h-11 rounded-xl bg-white dark:bg-card border-rose-200 dark:border-rose-900/80 text-sm font-medium focus-visible:ring-rose-400"
+                                />
+                            </div>
                         </div>
                     </div>
                 </CardContent>
             </Card>
 
-            {/* ── Dynamic Sections (Nota Básica: free_text, observations, etc.) — Abarcan toda la pantalla ── */}
-            {template?.sections.filter(s => ['free_text', 'techniques', 'observations', 'goals', 'homework'].includes(s)).map(sKey => {
-                const isFreeText = sKey === 'free_text';
-                const isObservations = sKey === 'observations';
-                return (
-                    <Card key={sKey} className="border-border shadow-xs w-full overflow-hidden bg-card rounded-2xl">
-                        <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50 flex flex-row items-center justify-between">
-                            <div>
-                                <CardTitle className="text-base font-bold text-foreground">
-                                    {getLabel(sKey, sKey)}
-                                </CardTitle>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                    {isFreeText
-                                        ? 'Espacio principal de redacción de la nota clínica'
-                                        : isObservations
-                                        ? 'Observaciones generales del estado del paciente, interacción o recomendaciones'
-                                        : `Sección clínica: ${getLabel(sKey, sKey)}`}
-                                </p>
-                            </div>
-                            <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-primary/5 text-primary border-primary/20">
-                                {isFreeText ? 'Principal' : 'Sección Libre'}
-                            </Badge>
-                        </CardHeader>
-                        <CardContent className="p-6">
-                            <Textarea
-                                value={dynamicFields[sKey] || ''}
-                                onChange={(e) => setDynamicFields({ ...dynamicFields, [sKey]: e.target.value })}
-                                placeholder={
-                                    isFreeText
-                                        ? 'Escribe el desarrollo completo de la sesión, motivos de consulta, intervenciones terapéuticas aplicadas y evolución del paciente...'
-                                        : isObservations
-                                        ? 'Notas y observaciones de conducta, afecto o seguimiento para próximas sesiones...'
-                                        : `Escribe las ${getLabel(sKey, sKey).toLowerCase()}...`
-                                }
-                                className={cn(
-                                    "w-full text-base leading-relaxed p-4 rounded-xl border-border bg-background focus:ring-2 focus:ring-primary/20",
-                                    isFreeText ? "min-h-[340px]" : "min-h-[150px]"
-                                )}
-                            />
-                        </CardContent>
-                    </Card>
-                );
-            })}
+            {/* ── Hoja de Word en Blanco (Abarca toda la pantalla, estilo documento) ── */}
+            <div className="w-full bg-white dark:bg-card border border-border/80 shadow-xl rounded-2xl p-6 sm:p-12 space-y-8 ring-1 ring-slate-900/5">
+                {/* Encabezado del documento Word */}
+                <div className="border-b border-border/60 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-primary" />
+                        <h3 className="text-base font-black text-foreground tracking-tight">
+                            Nota de Evolución Clínica y Psicoterapéutica
+                        </h3>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                        <span>{sessionDate ? format(parseISO(sessionDate), "d 'de' MMMM, yyyy", { locale: es }) : 'Sesión'}</span>
+                        <span>•</span>
+                        <span className="font-bold text-foreground">{patientName || 'Expediente Clínico'}</span>
+                    </div>
+                </div>
+
+                {/* Nota de Sesión (free_text) */}
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                        <Label className="text-xs font-black uppercase tracking-wider text-primary flex items-center gap-1.5">
+                            <FileText className="h-4 w-4" /> Nota de Sesión
+                        </Label>
+                        <span className="text-[11px] text-muted-foreground font-medium">
+                            Redacción amplia y libre
+                        </span>
+                    </div>
+                    <Textarea
+                        value={dynamicFields['free_text'] || ''}
+                        onChange={(e) => setDynamicFields({ ...dynamicFields, free_text: e.target.value })}
+                        placeholder="Escribe aquí el desarrollo de la sesión, intervenciones psicoterapéuticas aplicadas, temas abordados y evolución del paciente..."
+                        className="w-full text-base leading-relaxed p-6 rounded-xl border border-border/80 bg-slate-50/40 dark:bg-slate-950/40 min-h-[380px] focus:bg-white focus:ring-2 focus:ring-primary/20 transition-all font-sans resize-y"
+                    />
+                </div>
+
+                {/* Observaciones Clínicas */}
+                <div className="space-y-2 pt-6 border-t border-border/50">
+                    <div className="flex items-center justify-between">
+                        <Label className="text-xs font-black uppercase tracking-wider text-primary flex items-center gap-1.5">
+                            <ClipboardList className="h-4 w-4" /> Observaciones Clínicas y Conductuales
+                        </Label>
+                        <span className="text-[11px] text-muted-foreground font-medium">
+                            Afecto, conducta, lenguaje y acuerdos
+                        </span>
+                    </div>
+                    <Textarea
+                        value={dynamicFields['observations'] || ''}
+                        onChange={(e) => setDynamicFields({ ...dynamicFields, observations: e.target.value })}
+                        placeholder="Escribe aquí observaciones sobre la conducta del paciente, estado emocional, congruencia del lenguaje, acuerdos y tareas para la próxima sesión..."
+                        className="w-full text-sm leading-relaxed p-4 rounded-xl border border-border/80 bg-slate-50/40 dark:bg-slate-950/40 min-h-[160px] focus:bg-white focus:ring-2 focus:ring-primary/20 transition-all resize-y"
+                    />
+                </div>
+
+                {/* Secciones adicionales de plantilla (techniques, goals, homework) */}
+                {template?.sections.filter(s => !['free_text', 'observations', 'mood', 'bridge', 'mental_status', 'agenda', 'beliefs', 'action_plan'].includes(s)).map(sKey => (
+                    <div key={sKey} className="space-y-2 pt-6 border-t border-border/50">
+                        <Label className="text-xs font-black uppercase tracking-wider text-primary">
+                            {getLabel(sKey, sKey)}
+                        </Label>
+                        <Textarea
+                            value={dynamicFields[sKey] || ''}
+                            onChange={(e) => setDynamicFields({ ...dynamicFields, [sKey]: e.target.value })}
+                            placeholder={`Escribe las ${getLabel(sKey, sKey).toLowerCase()}...`}
+                            className="w-full text-sm leading-relaxed p-4 rounded-xl border border-border/80 bg-slate-50/40 dark:bg-slate-950/40 min-h-[120px] focus:bg-white focus:ring-2 focus:ring-primary/20 transition-all resize-y"
+                        />
+                    </div>
+                ))}
+            </div>
 
             {/* ── Mood Section (Estado de Ánimo) ── */}
             {hasSection('mood') && (
@@ -1109,6 +1130,29 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* ── Cuadrito de Diagnóstico Abajo: Clasificador CIE-11 & CIE-10 (Editable) ── */}
+            <Card className="border-border shadow-xs w-full bg-card rounded-2xl overflow-hidden">
+                <CardHeader className="py-4 px-6 bg-muted/20 border-b border-border/50 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-sm font-bold text-foreground">
+                            Diagnóstico y Clasificación Internacional (NOM-024 / CIE-11 & CIE-10)
+                        </CardTitle>
+                    </div>
+                    <span className="text-xs text-muted-foreground font-medium hidden sm:inline">
+                        Búsqueda, selección múltiple y anexo al expediente
+                    </span>
+                </CardHeader>
+                <CardContent className="p-6">
+                    <CIEDiagnosisSelector
+                        selectedDiagnoses={diagnoses}
+                        onDiagnosesChange={setDiagnoses}
+                        value={cie10}
+                        onChange={setCie10}
+                    />
+                </CardContent>
+            </Card>
 
             {/* ── Botones de Guardado Inferior ── */}
             <div className="flex justify-end gap-3 pt-6 border-t border-border mt-8">

@@ -1,3 +1,4 @@
+import RichConsentEditor from '@/components/consent/RichConsentEditor';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -335,13 +336,10 @@ const ConsentTemplateEditor = ({ onTemplatesLoaded }: ConsentTemplateEditorProps
                         {currentTemplate.body.length} caracteres
                     </span>
                 </div>
-                <Textarea
-                    id="template-body"
+                <RichConsentEditor
                     value={currentTemplate.body}
-                    onChange={(e) => updateCurrentTemplate('body', e.target.value)}
-                    rows={16}
-                    className="font-mono text-sm leading-relaxed resize-y"
-                    placeholder="Escribe o pega el texto del consentimiento aquí..."
+                    onChange={(html) => updateCurrentTemplate('body', html)}
+                    placeholder="Escribe o formatea el texto del consentimiento aquí..."
                 />
             </div>
 

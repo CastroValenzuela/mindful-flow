@@ -90,6 +90,8 @@ const Notes = () => {
   const navigate = useNavigate();
   const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
   const [selectedPatientName, setSelectedPatientName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [feedFilter, setFeedFilter] = useState<'all' | 'today' | 'unlinked' | 'handwritten' | 'free_text' | 'structured'>('all');
   const [selectedNote, setSelectedNote] = useState<string | null>(null);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   
@@ -354,6 +356,47 @@ const Notes = () => {
       }
     });
   };
+
+  const filteredNotes = notes.filter((n: any) => {
+    // 1. Text Search Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const patientMatch = (n.patient_name || '').toLowerCase().includes(q);
+      const topicMatch = (n.content?.topic || n.agenda?.[0]?.topic || '').toLowerCase().includes(q);
+      const cieMatch = (n.cie10_code || '').toLowerCase().includes(q) || 
+                       (n.cie10_description || '').toLowerCase().includes(q) || 
+                       (n.cie11_code || '').toLowerCase().includes(q) || 
+                       (n.cie11_description || '').toLowerCase().includes(q);
+      const textMatch = (n.transcript_summary || n.content?.text || '').toLowerCase().includes(q);
+      const dxMatch = Array.isArray(n.content?.diagnoses) && n.content.diagnoses.some((d: any) => 
+        (d.code || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q)
+      );
+      if (!patientMatch && !topicMatch && !cieMatch && !textMatch && !dxMatch) {
+        return false;
+      }
+    }
+
+    // 2. Tab Filter
+    if (feedFilter === 'today') {
+      const noteDate = n.date ? new Date(n.date).toDateString() : '';
+      const todayDate = new Date().toDateString();
+      return noteDate === todayDate;
+    }
+    if (feedFilter === 'unlinked') {
+      return !n.patient_id;
+    }
+    if (feedFilter === 'handwritten') {
+      return n.content?.note_type === 'handwritten' || Boolean(n.content?.drawing_data_url);
+    }
+    if (feedFilter === 'free_text') {
+      return n.content?.note_type === 'free_text';
+    }
+    if (feedFilter === 'structured') {
+      return !n.content?.note_type || n.content?.note_type === 'structured';
+    }
+
+    return true;
+  });
 
   const selectedNoteData = notes.find((n: any) => n.id === selectedNote);
 
@@ -742,113 +785,228 @@ const Notes = () => {
           </div>
         </div>
 
-        {!selectedPatient ? (
-          <Card className="border-dashed border-2 bg-transparent">
-            <CardContent className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center mb-6 ring-8 ring-primary/[0.02]">
-                <Search className="h-10 w-10 text-primary/30" />
+        {/* ── Banner cuando un paciente específico está seleccionado ── */}
+        {selectedPatient && (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-2xl bg-primary/5 border border-primary/20 gap-3 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <User className="h-5 w-5" />
               </div>
-              <h2 className="text-2xl font-black text-primary tracking-tight mb-2">Consulta un Expediente</h2>
-              <p className="text-muted-foreground max-w-[320px] mx-auto text-sm leading-relaxed">
-                Utiliza el buscador superior para seleccionar un paciente y ver su historial clínico completo.
-              </p>
-            </CardContent>
-          </Card>
-        ) : loading ? (
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-black text-foreground">{selectedPatientName || 'Paciente seleccionado'}</span>
+                  <Badge variant="outline" className="text-[10px] font-bold bg-primary/10 text-primary border-primary/20">
+                    {notes.length} notas en expediente
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">Viendo historial clínico de este paciente</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedPatient(null);
+                setSelectedPatientName('');
+                setSelectedNote(null);
+              }}
+              className="h-8 text-xs font-bold gap-1.5 rounded-xl hover:bg-muted"
+            >
+              <X className="h-3.5 w-3.5" />
+              Ver todas las notas (Feed General)
+            </Button>
+          </div>
+        )}
+
+        {/* ── Toolbar del Feed cuando vemos todas las notas ── */}
+        {!selectedPatient && (
+          <div className="space-y-3 bg-card p-5 rounded-2xl border border-border/70 shadow-2xs">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Buscar notas por paciente, diagnóstico, fecha..."
+                  className="pl-10 h-10 rounded-xl text-xs bg-background border-border/80"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Filtros rápidos */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                {[
+                  { id: 'all', label: 'Todas' },
+                  { id: 'today', label: 'Hoy' },
+                  { id: 'unlinked', label: 'Sin Expediente' },
+                  { id: 'free_text', label: 'Texto Libre' },
+                  { id: 'handwritten', label: '✍️ Manuscritas' },
+                  { id: 'structured', label: '📋 Estructuradas' },
+                ].map((tab) => (
+                  <Button
+                    key={tab.id}
+                    variant={feedFilter === tab.id ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFeedFilter(tab.id as any)}
+                    className={cn(
+                      "h-8 px-3 rounded-xl text-xs font-bold transition-all shrink-0",
+                      feedFilter === tab.id
+                        ? "bg-primary text-primary-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {tab.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1 font-medium">
+              <span>
+                Feed de Notas Clínicas • {filteredNotes.length} nota(s) encontrada(s)
+              </span>
+              {notes.some((n: any) => !n.patient_id) && (
+                <span className="text-amber-600 font-semibold flex items-center gap-1">
+                  ⚠️ Hay notas sin expediente vinculado
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Grid de Notas o Estados Vacíos ── */}
+        {loading ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="h-12 w-12 animate-spin text-primary/40" />
           </div>
-        ) : notes.length === 0 ? (
-          <Card className="border-dashed border-2">
-            <CardContent className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-6">
-                <FileText className="h-10 w-10 text-muted-foreground/30" />
+        ) : filteredNotes.length === 0 ? (
+          <Card className="border-dashed border-2 bg-transparent">
+            <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <FileText className="h-8 w-8 text-muted-foreground/40" />
               </div>
-              <h3 className="text-xl font-bold mb-2">No hay notas registradas</h3>
-              <p className="text-sm text-muted-foreground mb-6 max-w-xs mx-auto">
-                Este paciente aún no tiene sesiones registradas. Comienza creando su primera nota clínica.
+              <h3 className="text-lg font-bold mb-1">No se encontraron notas</h3>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto mb-6">
+                {searchQuery
+                  ? `No hay notas que coincidan con "${searchQuery}". Intenta con otro término.`
+                  : feedFilter !== 'all'
+                  ? 'No hay notas con el filtro seleccionado actualmente.'
+                  : 'Aún no has registrado notas clínicas en tu cuenta.'}
               </p>
-              <Button variant="zen" className="gap-2" onClick={() => setIsCreatingNote(true)}>
-                <Plus className="h-4 w-4" /> Crear Primera Nota
+              <Button variant="zen" size="sm" className="gap-2 rounded-xl text-xs font-bold" onClick={() => setIsCreatingNote(true)}>
+                <Plus className="h-4 w-4" /> Crear Nota Nueva
               </Button>
             </CardContent>
           </Card>
         ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in duration-500">
-              {notes.map((note: any) => {
-                const isHandwritten = note.content?.note_type === 'handwritten' || Boolean(note.content?.drawing_data_url);
-                const isFreeText = note.content?.note_type === 'free_text';
-                return (
-                  <div
-                    key={note.id}
-                    onClick={() => setSelectedNote(note.id)}
-                    className="group relative cursor-pointer overflow-hidden transition-all duration-300 rounded-2xl border-2 bg-card border-border hover:border-primary/40 hover:shadow-lg hover:-translate-y-1"
-                  >
-                    <div className="p-5 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md bg-primary/10 text-primary">
-                          Sesión #{note.session_number}
-                        </span>
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          <Calendar className="h-3 w-3 opacity-60" />
-                          {format(parseISO(note.date), "d MMM yyyy", { locale: es })}
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-1.5">
-                          {isHandwritten ? (
-                            <Badge variant="outline" className="text-[9px] px-2 py-0 bg-violet-50 text-violet-700 border-violet-200 font-bold">
-                              ✍️ Manuscrita
-                            </Badge>
-                          ) : isFreeText ? (
-                            <Badge variant="outline" className="text-[9px] px-2 py-0 bg-blue-50 text-blue-700 border-blue-200 font-bold">
-                              📝 Texto Libre
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[9px] px-2 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 font-bold">
-                              📋 Estructurada
-                            </Badge>
-                          )}
-                        </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in duration-500">
+            {filteredNotes.map((note: any) => {
+              const isHandwritten = note.content?.note_type === 'handwritten' || Boolean(note.content?.drawing_data_url);
+              const isFreeText = note.content?.note_type === 'free_text';
+              const isUnlinked = !note.patient_id;
 
-                        <p className="text-sm font-bold text-foreground leading-tight truncate">
-                          {note.content?.topic || note.agenda?.[0]?.topic || 'Consulta General'}
+              return (
+                <div
+                  key={note.id}
+                  onClick={() => setSelectedNote(note.id)}
+                  className="group relative cursor-pointer overflow-hidden transition-all duration-300 rounded-2xl border-2 bg-card border-border hover:border-primary/40 hover:shadow-lg hover:-translate-y-1 flex flex-col justify-between"
+                >
+                  <div className="p-5 space-y-3">
+                    {/* Header de la tarjeta */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-black text-foreground truncate flex items-center gap-1.5">
+                          <User className="h-3.5 w-3.5 text-primary shrink-0" />
+                          <span className="truncate">{note.patient_name || 'Sin paciente asignado'}</span>
                         </p>
-                        {note.cie10_code && (
-                          <p className="text-[10px] text-muted-foreground font-medium truncate">
-                            {note.cie10_code} - {note.cie10_description}
-                          </p>
+                        {isUnlinked && (
+                          <Badge variant="outline" className="mt-1 text-[9px] px-1.5 py-0 bg-amber-50 text-amber-700 border-amber-300 font-bold">
+                            ⚠️ Sin Expediente
+                          </Badge>
                         )}
                       </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-primary/10 text-primary shrink-0">
+                        Sesión #{note.session_number}
+                      </span>
+                    </div>
 
-                      {/* Handwritten Canvas Thumbnail */}
-                      {isHandwritten && note.content?.drawing_data_url && (
-                        <div className="pt-2 border-t border-border/40 overflow-hidden rounded-xl bg-slate-50 border border-border/30">
-                          <img
-                            src={note.content.drawing_data_url}
-                            alt="Miniatura"
-                            className="w-full h-20 object-cover object-top opacity-85 group-hover:opacity-100 transition-opacity"
-                          />
-                        </div>
+                    {/* Fecha y Tipo */}
+                    <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground pt-1 border-t border-border/40">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3 opacity-60" />
+                        {note.date ? format(parseISO(note.date), "d MMM yyyy", { locale: es }) : 'Sin fecha'}
+                      </div>
+                      <div>
+                        {isHandwritten ? (
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-violet-50 text-violet-700 border-violet-200 font-bold">
+                            ✍️ Manuscrita
+                          </Badge>
+                        ) : isFreeText ? (
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200 font-bold">
+                            📝 Libre
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 font-bold">
+                            📋 Estructurada
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Diagnósticos CIE-11 & CIE-10 */}
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-foreground leading-snug line-clamp-1">
+                        {note.content?.topic || note.agenda?.[0]?.topic || note.diagnostico_principal || 'Nota de Consulta'}
+                      </p>
+                      {note.cie11_code && (
+                        <p className="text-[10px] font-bold text-violet-700 dark:text-violet-400 truncate">
+                          CIE-11: {note.cie11_code} {note.cie11_description ? `· ${note.cie11_description}` : ''}
+                        </p>
                       )}
-                      
-                      {note.mood?.rating != null && (
-                        <div className="pt-2 border-t border-border/40 flex items-center gap-2">
-                          <Activity className="h-3.5 w-3.5 text-primary/60" />
-                          <span className="text-[11px] font-bold text-muted-foreground">
-                            Ánimo: {note.mood.rating}%
-                          </span>
-                        </div>
+                      {note.cie10_code && (
+                        <p className="text-[10px] font-semibold text-muted-foreground truncate">
+                          CIE-10: {note.cie10_code} {note.cie10_description ? `· ${note.cie10_description}` : ''}
+                        </p>
                       )}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
 
-            <Dialog open={!!selectedNoteData} onOpenChange={(open) => {
+                    {/* Handwritten Miniatura */}
+                    {isHandwritten && note.content?.drawing_data_url && (
+                      <div className="pt-2 border-t border-border/40 overflow-hidden rounded-xl bg-slate-50 border border-border/30">
+                        <img
+                          src={note.content.drawing_data_url}
+                          alt="Miniatura"
+                          className="w-full h-18 object-cover object-top opacity-85 group-hover:opacity-100 transition-opacity"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer de la tarjeta con acción rápida */}
+                  <div className="px-5 py-2.5 bg-muted/20 border-t border-border/40 flex items-center justify-between text-xs">
+                    <span className="text-[11px] font-semibold text-primary group-hover:underline">
+                      Ver / Imprimir →
+                    </span>
+                    {note.mood?.rating != null && (
+                      <span className="text-[10px] font-bold text-muted-foreground flex items-center gap-1">
+                        <Activity className="h-3 w-3 text-primary/60" /> {note.mood.rating}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <Dialog open={!!selectedNoteData} onOpenChange={(open) => {
               if (!open) {
                 setSelectedNote(null);
                 setIsEditing(false);
@@ -1153,8 +1311,6 @@ const Notes = () => {
                 )}
               </DialogContent>
             </Dialog>
-          </>
-        )}
       </div>
       </FeatureGate>
     </Layout>

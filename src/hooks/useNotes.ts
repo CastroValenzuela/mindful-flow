@@ -3,17 +3,22 @@ import { supabase } from '@/lib/supabase';
 import { SessionNote } from '@/types';
 import { toast } from 'sonner';
 
-export const useNotes = (patientId: string | null) => {
+export const useNotes = (patientId: string | null = null) => {
   return useQuery({
     queryKey: ['session_notes', patientId],
     queryFn: async () => {
-      if (!patientId) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from('session_notes')
         .select('*')
-        .eq('patient_id', patientId)
         .is('deleted_at', null)
-        .order('date', { ascending: false });
+        .order('date', { ascending: false })
+        .limit(100);
+
+      if (patientId) {
+        query = query.eq('patient_id', patientId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         toast.error('Error al cargar notas: ' + error.message);
@@ -21,7 +26,6 @@ export const useNotes = (patientId: string | null) => {
       }
       return (data as SessionNote[]) ?? [];
     },
-    enabled: !!patientId,
   });
 };
 
