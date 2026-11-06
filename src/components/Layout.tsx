@@ -325,7 +325,7 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
       <aside className={cn(
         'fixed z-50 transform transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] lg:z-40 lg:translate-x-0',
         'backdrop-blur-2xl bg-white/50 dark:bg-slate-900/50 border border-white/20 dark:border-white/5 shadow-soft rounded-[24px]',
-        'top-[4.5rem] bottom-2 left-2 lg:top-[5.25rem] lg:bottom-4 lg:left-4',
+        'top-[calc(env(safe-area-inset-top,0px)+4.5rem)] bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] left-2 lg:top-[5.25rem] lg:bottom-4 lg:left-4',
         sidebarW,
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       )}>
@@ -488,7 +488,7 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
 
       {/* ── Top Bar ──────────────────────────────────────────────── */}
       <header className={cn(
-        "fixed top-2 sm:top-3 lg:top-4 left-2 sm:left-3 lg:left-4 right-2 sm:right-3 lg:right-4 z-40 h-14 flex items-center justify-between gap-2 sm:gap-4",
+        "fixed top-[calc(env(safe-area-inset-top,0px)+0.5rem)] sm:top-3 lg:top-4 left-2 sm:left-3 lg:left-4 right-2 sm:right-3 lg:right-4 z-40 h-14 flex items-center justify-between gap-2 sm:gap-4",
         "border border-white/20 dark:border-white/5 backdrop-blur-2xl bg-white/50 dark:bg-slate-900/50 px-3 sm:px-4 shadow-soft rounded-[16px] sm:rounded-[20px]",
         "transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]",
         showHeader ? "translate-y-0 opacity-100" : "-translate-y-24 opacity-0"
@@ -548,13 +548,13 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
       </header>
 
       {/* Subscription Banner */}
-      <div className={cn('transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] fixed top-14 lg:top-16 left-0 right-0 z-40', contentPl)}>
+      <div className={cn('transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] fixed top-[calc(env(safe-area-inset-top,0px)+3.75rem)] lg:top-16 left-0 right-0 z-40', contentPl)}>
         <SubscriptionBanner />
       </div>
 
       {/* Main content — Glassmorphism card container */}
       <div className={cn('transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]', contentPl)}>
-        <main className="min-h-screen p-2 sm:p-3 lg:p-4 flex flex-col pt-20 lg:pt-[5.25rem]">
+        <main className="min-h-screen p-2 sm:p-3 lg:p-4 flex flex-col pt-[calc(env(safe-area-inset-top,0px)+5rem)] lg:pt-[5.25rem] pb-[calc(env(safe-area-inset-bottom,0px)+1rem)]">
           <div className="flex-1 backdrop-blur-2xl bg-white/50 dark:bg-slate-900/50 rounded-[18px] sm:rounded-[24px] border border-white/30 dark:border-white/5 shadow-elevated p-4 sm:p-6 lg:p-8">
             {children}
 
