@@ -337,12 +337,27 @@ const Auth = () => {
             {/* Left Side - Form */}
             <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background">
                 <div className="w-full max-w-md space-y-8">
-                    {/* Logo and Title */}
+                                        {/* Logo and Title */}
                     <div className="flex flex-col items-center text-center">
-                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary mb-4">
-                            <Brain className="h-8 w-8 text-primary-foreground" />
+                        <div className="mb-4 flex items-center justify-center">
+                            <img
+                                src="/saudade_icon.png"
+                                alt="Saudade"
+                                className="h-16 sm:h-20 w-auto object-contain select-none transition-transform hover:scale-105 duration-300 drop-shadow-sm"
+                            />
                         </div>
-                        <h1 className="text-2xl font-bold">Saudade</h1>
+                        <div className="flex items-center justify-center mb-1">
+                            <img
+                                src="/saudade_wordmark.png"
+                                alt="Saudade"
+                                className="h-8 sm:h-9 w-auto object-contain dark:hidden select-none"
+                            />
+                            <img
+                                src="/saudade_wordmark_white.png"
+                                alt="Saudade"
+                                className="h-8 sm:h-9 w-auto object-contain hidden dark:block select-none"
+                            />
+                        </div>
                         <div className="relative h-6 mt-2 w-full flex justify-center overflow-hidden">
                             <p className={`absolute text-muted-foreground transition-all duration-300 ${isLogin ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
                                 Bienvenido de vuelta
