@@ -276,10 +276,9 @@ export default function PortalLogin() {
       <Card className="w-full max-w-md shadow-2xl border-border/70 rounded-3xl bg-card/95 backdrop-blur-xl relative z-10 overflow-hidden">
         {/* Header */}
         <CardHeader className="text-center space-y-3 pt-8 pb-4">
-          <div className="mx-auto flex flex-col items-center justify-center mb-1">
-            <img src="/saudade_icon.png" alt="Saudade" className="h-16 w-auto object-contain drop-shadow-sm mb-2" />
-            <img src="/saudade_wordmark.png" alt="Saudade" className="h-6 w-auto object-contain dark:hidden" />
-            <img src="/saudade_wordmark_white.png" alt="Saudade" className="h-6 w-auto object-contain hidden dark:block" />
+          <div className="mx-auto flex items-center justify-center mb-2">
+            <img src="/saudade_wordmark.png" alt="Saudade" className="h-8 w-auto object-contain dark:hidden" />
+            <img src="/saudade_wordmark_white.png" alt="Saudade" className="h-8 w-auto object-contain hidden dark:block" />
           </div>
           <div className="space-y-1">
             <CardTitle className="text-2xl font-black tracking-tight text-foreground">

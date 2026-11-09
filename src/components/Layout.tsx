@@ -332,10 +332,9 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
         <div className="flex h-full flex-col overflow-hidden">
           {/* Sidebar Header (Mobile: Close only) */}
           <div className="flex h-12 items-center justify-between px-3 border-b border-white/10 lg:hidden">
-            <div className="flex items-center gap-2">
-              <img src="/saudade_icon.png" alt="Saudade" className="h-6 w-auto object-contain select-none" />
-              <img src="/saudade_wordmark.png" alt="Saudade" className="h-4 w-auto object-contain dark:hidden select-none" />
-              <img src="/saudade_wordmark_white.png" alt="Saudade" className="h-4 w-auto object-contain hidden dark:block select-none" />
+            <div className="flex items-center">
+              <img src="/saudade_wordmark.png" alt="Saudade" className="h-5 w-auto object-contain dark:hidden select-none" />
+              <img src="/saudade_wordmark_white.png" alt="Saudade" className="h-5 w-auto object-contain hidden dark:block select-none" />
             </div>
             <Button variant="ghost" size="icon-sm" onClick={() => setSidebarOpen(false)}>
               <X className="h-4 w-4" />
@@ -501,21 +500,16 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
         {/* Left: Brand */}
         <div className="flex items-center gap-2.5 w-max">
           {user?.email === 'saudade.app.mx@gmail.com' && <AppLauncher />}
-          <NavLink to="/" className="flex items-center gap-2 group outline-none">
-            <img
-              src="/saudade_icon.png"
-              alt="Saudade"
-              className="h-7 w-auto object-contain select-none transition-transform group-hover:scale-105 duration-200"
-            />
+          <NavLink to="/" className="flex items-center group outline-none py-1">
             <img
               src="/saudade_wordmark.png"
               alt="Saudade"
-              className="h-5 w-auto object-contain dark:hidden select-none"
+              className="h-6 sm:h-7 w-auto object-contain dark:hidden select-none transition-transform group-hover:scale-105 duration-200"
             />
             <img
               src="/saudade_wordmark_white.png"
               alt="Saudade"
-              className="h-5 w-auto object-contain hidden dark:block select-none"
+              className="h-6 sm:h-7 w-auto object-contain hidden dark:block select-none transition-transform group-hover:scale-105 duration-200"
             />
           </NavLink>
           <Button variant="ghost" size="icon-sm" className="lg:hidden ml-1" onClick={() => setSidebarOpen(true)}>
