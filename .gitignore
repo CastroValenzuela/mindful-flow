@@ -44,3 +44,5 @@ deploy.cjs
 deploy_args.json
 postgres/
 postgres17/
+.vercel
+.env*
