@@ -339,16 +339,28 @@ const Auth = () => {
                 <div className="w-full max-w-md space-y-8">
                                         {/* Logo and Title */}
                     <div className="flex flex-col items-center text-center">
-                        <div className="flex items-center justify-center mb-2">
+                        <div className="mb-4 flex items-center justify-center">
+                            <img
+                                src="/saudade_icon.png"
+                                alt="Saudade"
+                                className="h-16 sm:h-20 w-auto object-contain select-none transition-transform hover:scale-105 duration-300 drop-shadow-sm dark:hidden"
+                            />
+                            <img
+                                src="/saudade_icon_white.png"
+                                alt="Saudade"
+                                className="h-16 sm:h-20 w-auto object-contain select-none transition-transform hover:scale-105 duration-300 drop-shadow-sm hidden dark:block"
+                            />
+                        </div>
+                        <div className="flex items-center justify-center mb-1">
                             <img
                                 src="/saudade_wordmark.png"
                                 alt="Saudade"
-                                className="h-10 sm:h-12 w-auto object-contain dark:hidden select-none transition-transform hover:scale-105 duration-300"
+                                className="h-8 sm:h-9 w-auto object-contain dark:hidden select-none"
                             />
                             <img
                                 src="/saudade_wordmark_white.png"
                                 alt="Saudade"
-                                className="h-10 sm:h-12 w-auto object-contain hidden dark:block select-none transition-transform hover:scale-105 duration-300"
+                                className="h-8 sm:h-9 w-auto object-contain hidden dark:block select-none"
                             />
                         </div>
                         <div className="relative h-6 mt-2 w-full flex justify-center overflow-hidden">
