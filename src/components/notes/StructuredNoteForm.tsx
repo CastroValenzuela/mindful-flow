@@ -44,6 +44,17 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 
+const formatDateSafe = (dateStr: string | null | undefined, formatPattern: string, fallback = 'Sesión'): string => {
+    if (!dateStr) return fallback;
+    try {
+        const parsed = parseISO(dateStr);
+        if (isNaN(parsed.getTime())) return String(dateStr);
+        return format(parsed, formatPattern, { locale: es });
+    } catch {
+        return String(dateStr);
+    }
+};
+
 interface StructuredNoteFormProps {
     onSave: (note: any) => void;
     onCancel: () => void;
@@ -412,7 +423,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                             <p className="font-semibold text-sm">Se encontró un borrador previo no guardado</p>
                             <p className="text-xs text-muted-foreground">
                                 {draftSavedAt 
-                                    ? `Guardado automáticamente el ${format(new Date(draftSavedAt), "dd/MM/yyyy 'a las' HH:mm", { locale: es })}`
+                                    ? `Guardado automáticamente el ${formatDateSafe(draftSavedAt, "dd/MM/yyyy 'a las' HH:mm", '')}`
                                     : 'Hay notas capturadas que no fueron guardadas.'}
                             </p>
                         </div>
@@ -576,7 +587,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                         </h3>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
-                        <span>{sessionDate ? format(parseISO(sessionDate), "d 'de' MMMM, yyyy", { locale: es }) : 'Sesión'}</span>
+                        <span>{formatDateSafe(sessionDate, "d 'de' MMMM, yyyy")}</span>
                         <span>•</span>
                         <span className="font-bold text-foreground">{patientName || 'Expediente Clínico'}</span>
                     </div>
@@ -732,7 +743,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                                             Continuidad con Sesión #{previousNote.session_number}{' '}
                                             {previousNote.date && (
                                                 <span className="font-normal text-muted-foreground">
-                                                    ({format(parseISO(previousNote.date), "d 'de' MMMM", { locale: es })})
+                                                    ({formatDateSafe(previousNote.date, "d 'de' MMMM")})
                                                 </span>
                                             )}
                                         </p>
@@ -1032,7 +1043,7 @@ const StructuredNoteForm = ({ onSave, onCancel, initialPatientId, initialPatient
                                 Sesión Previa #{previousNote?.session_number || 'N/A'}{' '}
                                 {previousNote?.date && (
                                     <span className="font-normal text-sm text-muted-foreground">
-                                        — {format(parseISO(previousNote.date), "EEEE d 'de' MMMM, yyyy", { locale: es })}
+                                        — {formatDateSafe(previousNote.date, "EEEE d 'de' MMMM, yyyy")}
                                     </span>
                                 )}
                             </span>

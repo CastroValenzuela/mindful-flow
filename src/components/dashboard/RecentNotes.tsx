@@ -38,7 +38,13 @@ const RecentNotes = ({ notes }: RecentNotesProps) => {
                 <div>
                   <h4 className="font-medium">{note.patientName}</h4>
                   <p className="text-xs text-muted-foreground">
-                    {format(parseISO(note.createdAt), "d MMM yyyy, HH:mm", { locale: es })}
+                    {(() => {
+                      try {
+                        return format(parseISO(note.createdAt), "d MMM yyyy, HH:mm", { locale: es });
+                      } catch {
+                        return note.createdAt;
+                      }
+                    })()}
                   </p>
                 </div>
                 <Badge variant="outline">{note.format}</Badge>

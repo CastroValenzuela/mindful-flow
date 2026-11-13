@@ -18,7 +18,8 @@ import {
     Quote,
     MapPin,
     Clock,
-    Phone
+    Phone,
+    User
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ReviewList, Review } from '@/components/reviews/ReviewList';

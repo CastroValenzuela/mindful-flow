@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { logActivity } from '@/lib/activityLogger';
 import { PhoneInput } from '@/components/ui/PhoneInput';
+import { Badge } from '@/components/ui/badge';
 
 interface SpecialistProfile {
   id: string;

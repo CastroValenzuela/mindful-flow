@@ -33,8 +33,10 @@ import {
   Sparkles,
   Settings,
   Printer,
-  Pen
+  Pen,
+  User
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -84,7 +86,19 @@ const getNoteFullDisplayHtml = (note: any): string => {
     .join('<hr style="margin: 1.25rem 0; opacity: 0.2;" />');
 };
 
+const formatDateSafe = (dateStr: string | null | undefined, formatPattern: string): string => {
+  if (!dateStr) return 'Sin fecha';
+  try {
+    const parsed = parseISO(dateStr);
+    if (isNaN(parsed.getTime())) return String(dateStr);
+    return format(parsed, formatPattern, { locale: es });
+  } catch {
+    return String(dateStr);
+  }
+};
+
 const Notes = () => {
+  const queryClient = useQueryClient();
   const { organization } = useOrganization();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -429,6 +443,7 @@ const Notes = () => {
                   const { error } = await supabase.from('session_notes').insert([payload]);
                   if (error) throw error;
 
+                  queryClient.invalidateQueries({ queryKey: ['session_notes'] });
                   toast.success('Nota estructurada y guardada con éxito.');
                   setIsDictating(false);
                   setIsCreatingNote(false);
@@ -548,6 +563,7 @@ const Notes = () => {
                   if (error) {
                     toast.error('Error al guardar: ' + error.message);
                   } else {
+                    queryClient.invalidateQueries({ queryKey: ['session_notes'] });
                     toast.success('Nota guardada con éxito');
                     setIsCreatingNote(false);
                     setSelectedTemplateId(null);
@@ -941,7 +957,7 @@ const Notes = () => {
                     <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground pt-1 border-t border-border/40">
                       <div className="flex items-center gap-1">
                         <Calendar className="h-3 w-3 opacity-60" />
-                        {note.date ? format(parseISO(note.date), "d MMM yyyy", { locale: es }) : 'Sin fecha'}
+                        {formatDateSafe(note.date, "d MMM yyyy")}
                       </div>
                       <div>
                         {isHandwritten ? (
@@ -1023,7 +1039,7 @@ const Notes = () => {
                             <Badge variant="zen" className="px-3 py-1 rounded-lg shadow-sm">Sesión #{selectedNoteData.session_number}</Badge>
                             <span className="text-xs md:text-sm font-bold text-muted-foreground/60 flex items-center gap-1.5">
                               <Calendar className="h-4 w-4" />
-                              {format(parseISO(selectedNoteData.date), "EEEE, d 'de' MMMM yyyy", { locale: es })}
+                              {formatDateSafe(selectedNoteData.date, "EEEE, d 'de' MMMM yyyy")}
                             </span>
                           </div>
                           <DialogTitle className="text-2xl md:text-3xl font-black tracking-tight text-primary mt-2 md:mt-3">
