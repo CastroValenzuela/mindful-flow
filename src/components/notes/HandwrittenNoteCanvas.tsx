@@ -150,8 +150,8 @@ export default function HandwrittenNoteCanvas({
       const topMargin = 40;
 
       ctx.beginPath();
-      ctx.strokeStyle = '#e2e8f0'; // gris suave
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = '#cbd5e1'; // Gris nítido visible (Slate-300)
+      ctx.lineWidth = 1;
 
       for (let y = topMargin; y < h; y += lineSpacing) {
         ctx.moveTo(0, y);
@@ -159,25 +159,39 @@ export default function HandwrittenNoteCanvas({
       }
       ctx.stroke();
 
-      // Margen vertical izquierdo rojo/rosáceo sutil (estilo cuaderno)
+      // Margen vertical izquierdo rojo clásico (estilo cuaderno)
       ctx.beginPath();
-      ctx.strokeStyle = '#fca5a5';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#f87171';
+      ctx.lineWidth = 1.2;
       ctx.moveTo(48, 0);
       ctx.lineTo(48, h);
       ctx.stroke();
     } else if (paperType === 'grid') {
-      // Cuadrícula de 24x24 px
-      const gridSize = 24;
+      // Cuadrícula clínica nítida (estilo libreta cuadriculada)
+      const gridSize = 28;
       ctx.beginPath();
-      ctx.strokeStyle = '#f1f5f9';
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = '#cbd5e1'; // Gris nítido visible (Slate-300)
+      ctx.lineWidth = 1;
 
       for (let x = 0; x < w; x += gridSize) {
         ctx.moveTo(x, 0);
         ctx.lineTo(x, h);
       }
       for (let y = 0; y < h; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+      }
+      ctx.stroke();
+
+      // Líneas guía principales cada 4 celdas
+      ctx.beginPath();
+      ctx.strokeStyle = '#94a3b8'; // Slate-400
+      ctx.lineWidth = 1.2;
+      for (let x = 0; x < w; x += gridSize * 4) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
+      for (let y = 0; y < h; y += gridSize * 4) {
         ctx.moveTo(0, y);
         ctx.lineTo(w, y);
       }
@@ -278,6 +292,11 @@ export default function HandwrittenNoteCanvas({
     },
     [currentColor, currentSize, currentTool]
   );
+
+  // Paper type change handler
+  useEffect(() => {
+    renderBackground();
+  }, [paperType, renderBackground]);
 
   // Resize handler
   useEffect(() => {
@@ -687,36 +706,42 @@ export default function HandwrittenNoteCanvas({
             onClick={() => setPaperType('ruled')}
             title="Papel Rayado con renglones"
             className={cn(
-              'h-7 px-2 text-xs font-bold rounded-lg flex items-center gap-1 transition-all',
-              paperType === 'ruled' ? 'bg-background shadow-xs text-primary' : 'text-muted-foreground'
+              'h-7 px-2.5 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all',
+              paperType === 'ruled'
+                ? 'bg-primary text-primary-foreground shadow-xs font-black'
+                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
             )}
           >
-            <AlignJustify className="h-3 w-3" />
-            <span className="hidden lg:inline">Renglones</span>
+            <AlignJustify className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Renglones</span>
           </button>
           <button
             type="button"
             onClick={() => setPaperType('grid')}
             title="Papel Cuadriculado"
             className={cn(
-              'h-7 px-2 text-xs font-bold rounded-lg flex items-center gap-1 transition-all',
-              paperType === 'grid' ? 'bg-background shadow-xs text-primary' : 'text-muted-foreground'
+              'h-7 px-2.5 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all',
+              paperType === 'grid'
+                ? 'bg-primary text-primary-foreground shadow-xs font-black'
+                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
             )}
           >
-            <Grid className="h-3 w-3" />
-            <span className="hidden lg:inline">Cuadrícula</span>
+            <Grid className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Cuadrícula</span>
           </button>
           <button
             type="button"
             onClick={() => setPaperType('plain')}
             title="Papel Blanco Liso"
             className={cn(
-              'h-7 px-2 text-xs font-bold rounded-lg flex items-center gap-1 transition-all',
-              paperType === 'plain' ? 'bg-background shadow-xs text-primary' : 'text-muted-foreground'
+              'h-7 px-2.5 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all',
+              paperType === 'plain'
+                ? 'bg-primary text-primary-foreground shadow-xs font-black'
+                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
             )}
           >
-            <Square className="h-3 w-3" />
-            <span className="hidden lg:inline">Liso</span>
+            <Square className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Liso</span>
           </button>
         </div>
 
