@@ -94,6 +94,7 @@ export default function HandwrittenNoteCanvas({
 }: HandwrittenNoteCanvasProps) {
   // Canvas refs
   const containerRef = useRef<HTMLDivElement>(null);
+  const sheetContainerRef = useRef<HTMLDivElement>(null);
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -127,15 +128,21 @@ export default function HandwrittenNoteCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = Math.max(window.devicePixelRatio || 1, 2);
+    const container = sheetContainerRef.current;
     const rect = canvas.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
+    const w = rect.width || container?.clientWidth || 0;
+    const h = rect.height || container?.clientHeight || 0;
 
     if (w === 0 || h === 0) return;
 
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    const dpr = Math.max(window.devicePixelRatio || 1, 2);
+    const targetW = Math.round(w * dpr);
+    const targetH = Math.round(h * dpr);
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
@@ -207,16 +214,20 @@ export default function HandwrittenNoteCanvas({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const dpr = Math.max(window.devicePixelRatio || 1, 2);
+      const container = sheetContainerRef.current;
       const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
+      const w = rect.width || container?.clientWidth || 0;
+      const h = rect.height || container?.clientHeight || 0;
 
       if (w === 0 || h === 0) return;
 
-      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-        canvas.width = Math.round(w * dpr);
-        canvas.height = Math.round(h * dpr);
+      const dpr = Math.max(window.devicePixelRatio || 1, 2);
+      const targetW = Math.round(w * dpr);
+      const targetH = Math.round(h * dpr);
+
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
       }
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -293,22 +304,61 @@ export default function HandwrittenNoteCanvas({
     [currentColor, currentSize, currentTool]
   );
 
+  // Synchronize strokes ref
+  const strokesRef = useRef<Stroke[]>(strokes);
+  useEffect(() => {
+    strokesRef.current = strokes;
+  }, [strokes]);
+
   // Paper type change handler
   useEffect(() => {
     renderBackground();
   }, [paperType, renderBackground]);
 
-  // Resize handler
+  // Unified Resize & Observer Handler (handles Fullscreen/Minimize, Window Resize, Tablet Rotation)
   useEffect(() => {
-    const handleResize = () => {
+    const container = sheetContainerRef.current;
+    if (!container) return;
+
+    const updateAndRedraw = () => {
       renderBackground();
-      renderStrokes(strokes);
+      renderStrokes(strokesRef.current);
     };
 
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [renderBackground, renderStrokes, strokes]);
+    updateAndRedraw();
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => {
+        updateAndRedraw();
+      });
+      ro.observe(container);
+    }
+
+    window.addEventListener('resize', updateAndRedraw);
+
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', updateAndRedraw);
+    };
+  }, [renderBackground, renderStrokes]);
+
+  // Redraw when toggling isFullscreen to guarantee instantaneous refresh in both modes
+  useEffect(() => {
+    const t1 = setTimeout(() => {
+      renderBackground();
+      renderStrokes(strokesRef.current);
+    }, 30);
+    const t2 = setTimeout(() => {
+      renderBackground();
+      renderStrokes(strokesRef.current);
+    }, 150);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isFullscreen, renderBackground, renderStrokes]);
 
   // Strict non-passive touch prevention (Palm Rejection for iPad / Tablets)
   useEffect(() => {
@@ -359,7 +409,7 @@ export default function HandwrittenNoteCanvas({
     isDrawing.current = true;
     const pt = getPoint(e);
     currentPoints.current = [pt];
-    renderStrokes(strokes, [pt]);
+    renderStrokes(strokesRef.current, [pt]);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -369,7 +419,7 @@ export default function HandwrittenNoteCanvas({
 
     const pt = getPoint(e);
     currentPoints.current.push(pt);
-    renderStrokes(strokes, currentPoints.current);
+    renderStrokes(strokesRef.current, currentPoints.current);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -478,10 +528,10 @@ export default function HandwrittenNoteCanvas({
     <div
       ref={containerRef}
       className={cn(
-        'flex flex-col bg-slate-50 dark:bg-slate-900 rounded-2xl border border-border overflow-hidden transition-all duration-300 shadow-sm',
+        'flex flex-col bg-slate-50 dark:bg-slate-900 border border-border overflow-hidden shadow-sm',
         isFullscreen
           ? 'fixed inset-0 z-50 rounded-none w-screen h-screen'
-          : 'min-h-[750px] w-full'
+          : 'relative w-full h-[calc(100vh-140px)] min-h-[680px] max-h-[950px] rounded-2xl'
       )}
     >
       {/* ── Top Header Bar ─────────────────────────────────────────────── */}
@@ -788,13 +838,14 @@ export default function HandwrittenNoteCanvas({
 
       {/* ── Main Canvas Viewport (Touch Protected) ───────────────────────── */}
       <div
-        className="relative flex-1 bg-slate-200/50 dark:bg-slate-950 p-2 sm:p-4 overflow-hidden flex items-center justify-center select-none"
+        className="relative flex-1 w-full min-h-[460px] bg-slate-200/50 dark:bg-slate-950 p-2 sm:p-4 overflow-hidden flex flex-col items-center justify-center select-none"
         style={{ touchAction: 'none' }}
       >
         {/* Sheet Surface Container */}
         <div
+          ref={sheetContainerRef}
           className={cn(
-            'relative w-full h-full bg-white rounded-xl shadow-lg border border-slate-300 dark:border-slate-800 overflow-hidden cursor-crosshair select-none',
+            'relative w-full h-full min-h-[440px] flex-1 bg-white rounded-xl shadow-lg border border-slate-300 dark:border-slate-800 overflow-hidden cursor-crosshair select-none',
             isFullscreen ? 'max-w-none max-h-none' : 'max-w-5xl'
           )}
           style={{ touchAction: 'none' }}
@@ -802,15 +853,15 @@ export default function HandwrittenNoteCanvas({
           {/* Layer 1: Background canvas (Lines / Grid) */}
           <canvas
             ref={bgCanvasRef}
-            className="absolute inset-0 w-full h-full pointer-events-none select-none"
-            style={{ display: 'block', touchAction: 'none' }}
+            className="absolute inset-0 w-full h-full pointer-events-none select-none z-0"
+            style={{ display: 'block', touchAction: 'none', width: '100%', height: '100%' }}
           />
 
           {/* Layer 2: Drawing canvas (Strokes & Pointer Events) */}
           <canvas
             ref={drawCanvasRef}
-            className="absolute inset-0 w-full h-full select-none"
-            style={{ display: 'block', touchAction: 'none' }}
+            className="absolute inset-0 w-full h-full select-none z-10"
+            style={{ display: 'block', touchAction: 'none', width: '100%', height: '100%' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
