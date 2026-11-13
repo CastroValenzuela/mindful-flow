@@ -58,6 +58,7 @@ import {
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import NewAppointmentDialog from '@/components/agenda/NewAppointmentDialog';
+import NewEventDialog from '@/components/agenda/NewEventDialog';
 import AgendaListView from '@/components/agenda/AgendaListView';
 import { LayoutList, CalendarDays } from 'lucide-react';
 import DayView from '@/components/agenda/DayView';
@@ -76,6 +77,7 @@ const AgendaPage = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [isNewAppointmentOpen, setIsNewAppointmentOpen] = useState(false);
+  const [isNewEventOpen, setIsNewEventOpen] = useState(false);
   const [viewType, setViewType] = useState<'calendar' | 'list'>('calendar');
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
 
@@ -132,6 +134,15 @@ const AgendaPage = () => {
   const handleRescheduleAppointment = (apt: Appointment) => {
     setEditingAppointment(apt);
     setIsNewAppointmentOpen(true);
+  };
+
+  const handleOpenEdit = (apt: Appointment) => {
+    setEditingAppointment(apt);
+    if (apt.type === 'event' || !apt.patient_id) {
+      setIsNewEventOpen(true);
+    } else {
+      setIsNewAppointmentOpen(true);
+    }
   };
 
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
@@ -363,8 +374,14 @@ const AgendaPage = () => {
                     <p className="text-xs text-muted-foreground">Agendar una cita con paciente</p>
                   </div>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2 cursor-pointer">
-                  <CalendarIcon className="h-4 w-4" />
+                <DropdownMenuItem
+                  onClick={() => {
+                    setEditingAppointment(null);
+                    setIsNewEventOpen(true);
+                  }}
+                  className="gap-2 cursor-pointer"
+                >
+                  <CalendarIcon className="h-4 w-4 text-primary" />
                   <div>
                     <p className="font-medium">Evento</p>
                     <p className="text-xs text-muted-foreground">Crear un evento en la agenda</p>
@@ -478,10 +495,7 @@ const AgendaPage = () => {
                     return d >= monthStartDate && d <= monthEndDate;
                   });
                 })()}
-                onEditAppointment={(apt) => {
-                  setEditingAppointment(apt);
-                  setIsNewAppointmentOpen(true);
-                }}
+                onEditAppointment={handleOpenEdit}
                 onCancelAppointment={handleCancelAppointment}
                 onRescheduleAppointment={handleRescheduleAppointment}
                 clinicTimezone={clinicTz}
@@ -497,10 +511,7 @@ const AgendaPage = () => {
                 timeSlots={timeSlots}
                 isWorkingDay={isWorkingDay(currentDate)}
                 clinicTimezone={clinicTz}
-                onEditAppointment={(apt) => {
-                  setEditingAppointment(apt);
-                  setIsNewAppointmentOpen(true);
-                }}
+                onEditAppointment={handleOpenEdit}
               />
             )}
 
@@ -612,10 +623,7 @@ const AgendaPage = () => {
                                   {dayAppointments.map(apt => (
                                     <div
                                       key={apt.id}
-                                      onClick={() => {
-                                        setEditingAppointment(apt);
-                                        setIsNewAppointmentOpen(true);
-                                      }}
+                                      onClick={() => handleOpenEdit(apt)}
                                       className={cn(
                                         "rounded-xl border p-2 cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] flex flex-col gap-1.5 relative overflow-hidden",
                                         getChipStyle(apt),
@@ -627,12 +635,18 @@ const AgendaPage = () => {
 
                                       {/* Row 1: Identity */}
                                       <div className="flex items-center gap-1.5 font-bold text-[10px] leading-tight">
-                                        {apt.modality === 'online' ? (
+                                        {apt.type === 'event' ? (
+                                          <CalendarIcon className="h-2.5 w-2.5 flex-shrink-0 text-primary" title="Evento" />
+                                        ) : apt.modality === 'online' ? (
                                           <Video className="h-2.5 w-2.5 flex-shrink-0 text-blue-500" title="En línea" />
                                         ) : (
                                           <MapPin className="h-2.5 w-2.5 flex-shrink-0 text-amber-600 dark:text-amber-400" title="Presencial" />
                                         )}
-                                        <span className="truncate flex-1">{apt.patient_name.split(' ')[0]}</span>
+                                        <span className="truncate flex-1">
+                                          {apt.type === 'event'
+                                            ? (apt.title || apt.patient_name || 'Evento')
+                                            : (apt.patient_name ? apt.patient_name.split(' ')[0] : (apt.title || 'Cita'))}
+                                        </span>
                                       </div>
 
                                       {/* Row 2: Time & Recurrence */}
@@ -705,10 +719,7 @@ const AgendaPage = () => {
                 isWorkingDay={isWorkingDay}
                 isNonWorkingDay={isNonWorkingDay}
                 isPastDay={isPastDay}
-                onEditAppointment={(apt) => {
-                  setEditingAppointment(apt);
-                  setIsNewAppointmentOpen(true);
-                }}
+                onEditAppointment={handleOpenEdit}
               />
             )}
             </>
@@ -769,6 +780,21 @@ const AgendaPage = () => {
             modality: editingAppointment.modality,
           } : null}
           isReadOnly={isAppointmentPast(editingAppointment)}
+        />
+
+        {/* New / Edit Event Dialog */}
+        <NewEventDialog
+          open={isNewEventOpen}
+          onOpenChange={(open) => {
+            setIsNewEventOpen(open);
+            if (!open) setEditingAppointment(null);
+          }}
+          selectedDate={selectedDate || currentDate}
+          editingEvent={editingAppointment && (editingAppointment.type === 'event' || !editingAppointment.patient_id) ? editingAppointment : null}
+          onEventAdded={() => {
+            refetchAppointments();
+            setEditingAppointment(null);
+          }}
         />
       </div>
       </FeatureGate>

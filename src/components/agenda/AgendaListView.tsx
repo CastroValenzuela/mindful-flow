@@ -189,11 +189,11 @@ const AppointmentRow = ({
                 {/* Patient / Type */}
                 <div className="flex-1 min-w-0 hidden sm:block">
                     <span className="block text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                        Paciente
+                        {apt.type === 'event' ? 'Evento' : 'Paciente'}
                     </span>
                     <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
-                            {apt.patient_name}
+                            {apt.title || apt.patient_name}
                         </span>
                         {apt.modality === 'presencial' && apt.location && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 truncate max-w-[150px]" title={apt.location}>

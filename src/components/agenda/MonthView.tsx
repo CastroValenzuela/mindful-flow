@@ -2,7 +2,7 @@ import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, parseISO,
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { Video, MapPin, Repeat, CreditCard, CircleDollarSign, Clock, CheckCircle, Timer, XCircle, CheckCircle2 } from 'lucide-react';
+import { Video, MapPin, Repeat, CreditCard, CircleDollarSign, Clock, CheckCircle, Timer, XCircle, CheckCircle2, Calendar } from 'lucide-react';
 
 interface MonthViewProps {
     currentDate: Date;
@@ -109,7 +109,9 @@ const MonthView = ({ currentDate, appointments, selectedDate, onSelectDate, onDa
                                         <div className={cn("absolute left-0 top-0 bottom-0 w-0.5", getStatusColor(apt.status).split(' ')[1])} />
                                         
                                         <div className="flex-shrink-0">
-                                            {apt.modality === 'online' ? (
+                                            {apt.type === 'event' ? (
+                                                <Calendar className="h-2.5 w-2.5 text-primary" title="Evento" />
+                                            ) : apt.modality === 'online' ? (
                                                 <Video className="h-2.5 w-2.5 text-slate-500" title="En línea" />
                                             ) : (
                                                 <MapPin className="h-2.5 w-2.5 text-amber-600" title={apt.location ? `Presencial: ${apt.location}` : "Presencial"} />
@@ -117,7 +119,9 @@ const MonthView = ({ currentDate, appointments, selectedDate, onSelectDate, onDa
                                         </div>
 
                                         <span className="truncate flex-1 font-bold leading-none">
-                                            {apt.patient_name.split(' ')[0]}
+                                            {apt.type === 'event'
+                                                ? (apt.title || apt.patient_name || 'Evento')
+                                                : (apt.patient_name ? apt.patient_name.split(' ')[0] : (apt.title || 'Cita'))}
                                         </span>
 
                                         <div className="flex items-center gap-0.5 ml-auto">

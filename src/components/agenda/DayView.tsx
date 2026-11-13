@@ -1,6 +1,6 @@
 import { format, parseISO, isToday } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Clock, MapPin, Video, Repeat, CreditCard, CircleDollarSign, CheckCircle, Timer, XCircle, CheckCircle2 } from 'lucide-react';
+import { Clock, MapPin, Video, Repeat, CreditCard, CircleDollarSign, CheckCircle, Timer, XCircle, CheckCircle2, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getClinicHour, formatClinicTime } from '@/lib/timezone';
 
@@ -109,7 +109,11 @@ const DayView = ({ currentDate, appointments, getStatusColor, getChipStyle, time
                                         {/* Row 1: Identity & Status */}
                                         <div className="flex items-center justify-between gap-2">
                                             <div className="flex items-center gap-2 font-bold text-sm flex-1 min-w-0">
-                                                {apt.modality === 'online' ? (
+                                                {apt.type === 'event' ? (
+                                                    <div className="bg-primary/10 dark:bg-primary/20 p-1 rounded-md">
+                                                        <Calendar className="h-3.5 w-3.5 text-primary" />
+                                                    </div>
+                                                ) : apt.modality === 'online' ? (
                                                     <div className="bg-slate-100 dark:bg-slate-900/40 p-1 rounded-md">
                                                         <Video className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
                                                     </div>
@@ -118,7 +122,7 @@ const DayView = ({ currentDate, appointments, getStatusColor, getChipStyle, time
                                                         <MapPin className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                                                     </div>
                                                 )}
-                                                <span className="truncate">{apt.patient_name}</span>
+                                                <span className="truncate">{apt.title || apt.patient_name}</span>
                                             </div>
 
                                             {apt.status && STATUS_LABEL[apt.status] && (
