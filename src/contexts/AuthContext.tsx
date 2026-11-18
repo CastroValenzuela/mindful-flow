@@ -377,6 +377,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             );
             await logSessionEvent(user.id, user.email ?? '', event, durationSeconds);
         }
+
+        // Security / HIPAA / NOM-024: Clean up sensitive clinical session cache and drafts from local storage
+        if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+                localStorage.removeItem('saudade_offline_notes');
+                localStorage.removeItem('saudade_patient_session');
+                localStorage.removeItem('saudade_session_goal');
+                localStorage.removeItem('saudade_selected_plan');
+
+                const keysToRemove: string[] = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && (key.startsWith('note_draft_') || key.startsWith('draft_') || key.startsWith('clinic_locations_'))) {
+                        keysToRemove.push(key);
+                    }
+                }
+                keysToRemove.forEach(k => localStorage.removeItem(k));
+
+                if (window.sessionStorage) {
+                    sessionStorage.clear();
+                }
+            } catch (storageErr) {
+                console.warn('Non-fatal error clearing sensitive local storage on sign out:', storageErr);
+            }
+        }
+
         await supabase.auth.signOut();
     };
 
