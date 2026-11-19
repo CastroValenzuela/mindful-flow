@@ -785,6 +785,20 @@ const Patients = () => {
       return 0;
     });
 
+// Whitelist de extensiones permitidas para expedientes de pacientes (NOM-024 / OWASP)
+const ALLOWED_PATIENT_DOC_EXTENSIONS = new Set([
+  'pdf', 'doc', 'docx', 'txt', 'rtf', 'odt', 'pages', 'csv', 'xls', 'xlsx',
+  'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif',
+  'mp3', 'm4a', 'wav', 'ogg', 'aac', 'weba'
+]);
+
+// Extensiones ejecutables o scripts prohibidas por seguridad
+const FORBIDDEN_FILE_EXTENSIONS = new Set([
+  'exe', 'bat', 'cmd', 'sh', 'php', 'phtml', 'vbs', 'js', 'jsx', 'ts', 'tsx',
+  'msi', 'com', 'pif', 'scr', 'jar', 'cgi', 'apk', 'bin', 'dll', 'sys', 'iso',
+  'html', 'htm', 'xhtml', 'svg', 'lnk', 'ps1', 'app'
+]);
+
   const handleFileUpload = async (files: File[]) => {
     if (!selectedPatient || !organization?.id) return;
     setIsUploading(true);
@@ -794,13 +808,21 @@ const Patients = () => {
 
       let uploadedCount = 0;
       for (const file of files) {
-        // Validate size (50MB)
+        // 1. Validar extensión y formato contra whitelist clínica
+        const parts = file.name.split('.');
+        const ext = (parts.length > 1 ? parts.pop() : '')?.toLowerCase().trim() || '';
+
+        if (!ext || FORBIDDEN_FILE_EXTENSIONS.has(ext) || !ALLOWED_PATIENT_DOC_EXTENSIONS.has(ext)) {
+          toast.error(`"${file.name}" tiene un formato no admitido. Por seguridad, solo se permiten documentos (PDF, Word, Excel, texto), imágenes o audios clínicos.`);
+          continue;
+        }
+
+        // 2. Validate size (50MB)
         if (file.size > 52428800) {
           toast.error(`"${file.name}" excede el límite de 50MB.`);
           continue;
         }
 
-        const ext = file.name.split('.').pop() || 'bin';
         const safeName = file.name
           .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // remove accents
           .replace(/[^a-zA-Z0-9._-]/g, '_');                // replace spaces & special chars

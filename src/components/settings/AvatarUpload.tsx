@@ -34,7 +34,17 @@ const AvatarUpload = ({ url, fullName, onUpload, onRemove }: AvatarUploadProps) 
             }
 
             const file = event.target.files[0];
-            const fileExt = file.name.split('.').pop();
+            const fileExt = (file.name.split('.').pop() || '').toLowerCase().trim();
+            const allowedImageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+            if (!allowedImageExts.includes(fileExt) || (file.type && !file.type.startsWith('image/'))) {
+                throw new Error('Solo se permiten imágenes válidas (JPG, PNG, WebP).');
+            }
+
+            if (file.size > 5 * 1024 * 1024) {
+                throw new Error('La imagen de perfil no debe superar los 5MB.');
+            }
+
             const filePath = `${user?.id}/avatar-${Math.random()}.${fileExt}`;
 
             // Upload the file to Supabase storage
