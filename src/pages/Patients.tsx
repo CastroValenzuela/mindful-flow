@@ -404,9 +404,40 @@ const Patients = () => {
 
 
   // ── Helpers ─────────────────────────────────────────────────────────────
+  const lastAuditedPatientRef = useRef<{ id: string; time: number } | null>(null);
+
+  const logPatientAccess = useCallback(async (patientId: string, patientName?: string) => {
+    if (!organization?.id || !patientId) return;
+    const now = Date.now();
+    if (
+      lastAuditedPatientRef.current &&
+      lastAuditedPatientRef.current.id === patientId &&
+      now - lastAuditedPatientRef.current.time < 30000
+    ) {
+      return;
+    }
+    lastAuditedPatientRef.current = { id: patientId, time: now };
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from('audit_logs').insert({
+        organization_id: organization.id,
+        profile_id: user.id,
+        action: 'view_patient_dossier',
+        resource_type: 'patients',
+        details: { patient_id: patientId, patient_name: patientName || 'Expediente clínico' }
+      });
+    } catch {
+      // Non-fatal, silent fallback
+    }
+  }, [organization?.id]);
+
   const selectPatient = (id: string) => {
     setSelectedPatient(id);
     setConfirmDeletePatient(false);
+    const target = patients.find(p => p.id === id);
+    logPatientAccess(id, target?.name);
   };
 
   // Cargar pacientes desde Supabase
@@ -828,6 +859,21 @@ const Patients = () => {
         .eq('id', selectedPatient)
         .eq('organization_id', organization?.id);
       if (updErr) throw updErr;
+
+      // Log archiving in audit_logs for NOM-024 compliance
+      try {
+        const target = patients.find(p => p.id === selectedPatient);
+        await supabase.from('audit_logs').insert({
+          organization_id: organization.id,
+          profile_id: user?.id,
+          action: 'archive_patient_dossier',
+          resource_type: 'patients',
+          details: { patient_id: selectedPatient, patient_name: target?.name || 'Expediente' }
+        });
+      } catch {
+        // Non-blocking
+      }
+
       toast.success('Expediente eliminado con éxito');
       setSelectedPatient(null);
       fetchPatients();
