@@ -27,13 +27,14 @@ import {
   CheckSquare,
   Square,
   Copy,
+  Printer,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import MiniEditor from '@/components/ui/MiniEditor';
 import { SessionNote } from '@/types';
 import { useOrganization } from '@/hooks/useOrganization';
-import { generateSessionNotePDF } from '@/lib/generateExpedientePDF';
+import { generateSessionNotePDF, printSessionNotePDF } from '@/lib/generateExpedientePDF';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -785,6 +786,44 @@ export default function NoteEditorSheet({
     }
   };
 
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  // Print PDF directly (NOM-004)
+  const handlePrintPDF = async () => {
+    if (!note) return;
+    setIsPrinting(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No hay sesión activa');
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('full_name, prefix, cedulas, signature_data, logo_data')
+        .eq('id', user.id)
+        .single();
+
+      printSessionNotePDF(
+        { name: patientName, id: patientId, date_of_birth: patientDOB },
+        {
+          ...note,
+          agenda: agendaItems.length > 0 ? agendaItems : note?.agenda,
+          bridge: { ...(note?.bridge || {}), items: bridgeItems, notes: bulletPoints },
+          mood: moodRating !== null ? { rating: moodRating, notes: moodNotes } : note?.mood,
+          transcript_summary: editorContent,
+          cie10_code: cie10Code,
+          diagnostico_principal: diagnosticoPrincipal,
+        } as any,
+        prof || undefined
+      );
+      toast.success('Abriendo vista de impresión conforme a NOM-004');
+    } catch (err: any) {
+      console.error('Error printing PDF:', err);
+      toast.error('Error al imprimir: ' + err.message);
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
   // Export PDF
   const handleExportPDF = async () => {
     if (!note) return;
@@ -845,16 +884,28 @@ export default function NoteEditorSheet({
       </div>
       <div className="flex items-center gap-2">
         {note && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 hover:bg-slate-100 rounded-xl"
-            onClick={handleExportPDF}
-            disabled={isExporting}
-            title="Exportar Reporte PDF"
-          >
-            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-slate-500" />}
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:bg-slate-100 rounded-xl"
+              onClick={handlePrintPDF}
+              disabled={isPrinting}
+              title="Imprimir Nota Clínica (NOM-004)"
+            >
+              {isPrinting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4 text-slate-500" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:bg-slate-100 rounded-xl"
+              onClick={handleExportPDF}
+              disabled={isExporting}
+              title="Exportar Reporte PDF"
+            >
+              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-slate-500" />}
+            </Button>
+          </>
         )}
         <Button
           variant="ghost"

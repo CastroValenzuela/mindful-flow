@@ -1212,9 +1212,21 @@ const Notes = () => {
                               <h4 className="text-xs font-black uppercase tracking-[0.2em] text-violet-600 flex items-center gap-2">
                                 <Pen className="h-4 w-4" /> Anotaciones Manuscritas (iPad / Tablet)
                               </h4>
-                              <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200">
-                                Trazo Táctil Alta Resolución
-                              </Badge>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 text-xs font-bold gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50"
+                                  onClick={() => handleDownloadNote(selectedNoteData, { autoPrint: true })}
+                                  title="Imprimir nota clínica directamente con membrete oficial"
+                                >
+                                  <Printer className="h-3.5 w-3.5" />
+                                  Imprimir Nota (NOM-004)
+                                </Button>
+                                <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200">
+                                  Trazo Táctil Alta Resolución
+                                </Badge>
+                              </div>
                             </div>
 
                             <div className="rounded-2xl border-2 border-slate-200 dark:border-slate-800 overflow-hidden bg-white shadow-md p-2">

@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { format, parseISO, startOfDay, endOfDay, isBefore } from 'date-fns';
+import { format, parseISO, startOfDay, endOfDay, isBefore, addDays, isAfter } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { CalendarIcon, Clock, Video, Loader2, XCircle, MapPin, Repeat, CreditCard, Sparkles, Copy, Check, Building2, Plus, Info, ExternalLink, Star, CheckCircle2, Home, Trash2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -117,6 +117,7 @@ interface NewAppointmentDialogProps {
     onAppointmentAdded?: () => void;
     editingAppointment?: EditingAppointment | null;
     isReadOnly?: boolean;
+    initialPatient?: any | null;
 }
 
 const NewAppointmentDialog = ({
@@ -126,6 +127,7 @@ const NewAppointmentDialog = ({
     onAppointmentAdded,
     editingAppointment,
     isReadOnly = false,
+    initialPatient,
 }: NewAppointmentDialogProps) => {
     const { user } = useAuth();
     const { organization } = useOrganization();
@@ -158,6 +160,10 @@ const NewAppointmentDialog = ({
     const [newLocInstructions, setNewLocInstructions] = useState('');
     const [saveForFuture, setSaveForFuture] = useState(true);
     const [specialistDefaultPlatform, setSpecialistDefaultPlatform] = useState<string>('saudade');
+
+    // Control de primera sesión (mostrar/ocultar edad y motivo) y hora manual
+    const [isFirstSession, setIsFirstSession] = useState(false);
+    const [isManualTime, setIsManualTime] = useState(false);
 
     useEffect(() => {
         if (!user) return;
@@ -314,9 +320,11 @@ const NewAppointmentDialog = ({
             .then(({ data }) => {
                 if (!data || data.length === 0) {
                     setPatientSuggestedTime(null);
+                    setIsFirstSession(true);
                     return;
                 }
 
+                setIsFirstSession(false);
                 const clinicTz = organization?.settings?.timezone || getVisitorTimezone();
                 const counts: Record<string, number> = {};
                 data.forEach(apt => {
@@ -454,17 +462,17 @@ const NewAppointmentDialog = ({
             resetForm();
         }
         setConfirmCancel(false);
-    }, [editingAppointment, open]);
+    }, [editingAppointment, open, initialPatient]);
 
     const resetForm = () => {
         const defaultLocStr = defaultLocation
             ? `${defaultLocation.name}${defaultLocation.address ? ` - ${defaultLocation.address}` : ''}${defaultLocation.instructions ? ` [Ref: ${defaultLocation.instructions}]` : ''}`
             : '';
         setFormData({
-            patientId: '',
-            patientName: '',
-            patientEmail: '',
-            patientPhone: '',
+            patientId: initialPatient?.id || '',
+            patientName: initialPatient?.name || '',
+            patientEmail: initialPatient?.email || '',
+            patientPhone: initialPatient?.phone || '',
             type: '',
             status: 'scheduled',
             color: 'violet',
@@ -482,8 +490,21 @@ const NewAppointmentDialog = ({
             reasonForConsultation: '',
             serviceId: '',
         });
+        setIsFirstSession(!initialPatient);
         setIsAddingLocation(false);
     };
+
+    useEffect(() => {
+        if (initialPatient && open && !editingAppointment) {
+            setFormData(prev => ({
+                ...prev,
+                patientId: initialPatient.id || '',
+                patientName: initialPatient.name || '',
+                patientEmail: initialPatient.email || '',
+                patientPhone: initialPatient.phone || '',
+            }));
+        }
+    }, [initialPatient, open, editingAppointment]);
 
     // Preseleccionar consultorio habitual al abrir diálogo si no hay ubicación asignada
     useEffect(() => {
@@ -1035,6 +1056,44 @@ const NewAppointmentDialog = ({
         }
     };
 
+    const [isManagingNoShow, setIsManagingNoShow] = useState(false);
+
+    const handleNoShowAction = async () => {
+        if (!editingAppointment) return;
+        setIsManagingNoShow(true);
+        try {
+            const noteText = `[Inasistencia registrada el ${format(new Date(), "d 'de' MMMM", { locale: es })}. Se aplica penalización/cobro.]`;
+            const updatedNotes = formData.notes ? `${formData.notes}\n${noteText}` : noteText;
+
+            const { error } = await supabase
+                .from('appointments')
+                .update({ 
+                    notes: updatedNotes
+                })
+                .eq('id', editingAppointment.id);
+
+            if (error) throw error;
+
+            if (formData.patientPhone) {
+                const cleanPhone = formData.patientPhone.replace(/[^0-9]/g, '');
+                const patientFirstName = formData.patientName?.split(' ')[0] || 'paciente';
+                const sessionTime = format(new Date(editingAppointment.startTime), "h:mm a");
+                const feeText = formData.fee ? `($${formData.fee} MXN)` : '';
+                
+                const wpMsg = `Hola ${patientFirstName}, esperamos te encuentres bien. Notamos que no pudiste asistir a tu sesión de hoy a las ${sessionTime}. Conforme a las políticas clínicas acordadas, la sesión se considera reservada ${feeText}. Para reagendar tu cita o revisar cualquier eventualidad, por favor responde a este mensaje. ¡Estamos para apoyarte! 🌿`;
+                window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(wpMsg)}`, '_blank');
+            }
+
+            toast.success('Inasistencia registrada y mensaje para reagendar preparado en WhatsApp');
+            setFormData(prev => ({ ...prev, notes: updatedNotes }));
+            if (onAppointmentAdded) onAppointmentAdded();
+        } catch (err: any) {
+            toast.error('Error al registrar inasistencia: ' + err.message);
+        } finally {
+            setIsManagingNoShow(false);
+        }
+    };
+
     const handleRequestPayment = async () => {
         if (!editingAppointment) return;
         setIsRequestingPayment(true);
@@ -1309,6 +1368,10 @@ const NewAppointmentDialog = ({
                                             disabled={(d) => {
                                                 const now = new Date();
                                                 if (isBefore(startOfDay(d), startOfDay(now))) return true;
+                                                // Tope de temporalidad: máximo 90 días a futuro (evitar citas infinitas)
+                                                const maxFutureDate = addDays(startOfDay(now), 90);
+                                                if (isAfter(startOfDay(d), maxFutureDate)) return true;
+
                                                 const isoDate = format(d, 'yyyy-MM-dd');
                                                 if (horarioConfig.dias_no_laborables.includes(isoDate)) return true;
                                                 const weekday = d.getDay();
@@ -1322,9 +1385,14 @@ const NewAppointmentDialog = ({
                                             }}
                                         />
                                         <div className="pt-2 border-t border-border/40 flex items-center justify-between gap-2">
-                                            <span className="text-xs text-muted-foreground font-medium pl-1">
-                                                {date ? format(date, "d 'de' MMMM", { locale: es }) : 'Ninguna fecha'}
-                                            </span>
+                                            <div className="flex flex-col">
+                                                <span className="text-xs text-muted-foreground font-medium pl-1">
+                                                    {date ? format(date, "d 'de' MMMM", { locale: es }) : 'Ninguna fecha'}
+                                                </span>
+                                                <span className="text-[10px] text-muted-foreground/75 pl-1">
+                                                    Máximo 90 días a futuro
+                                                </span>
+                                            </div>
                                             <Button
                                                 type="button"
                                                 size="sm"
@@ -1342,82 +1410,136 @@ const NewAppointmentDialog = ({
 
                         {/* ── Hora ── */}
                         <div className="space-y-2">
-                            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Hora de Inicio</Label>
-                            <Select
-                                value={formData.startTime}
-                                onValueChange={(val) => !isReadOnly && setFormData(prev => ({ ...prev, startTime: val }))}
-                                disabled={isSubmitting || isReadOnly}
-                            >
-                                <SelectTrigger className="w-full h-12 rounded-xl border-border/60 bg-muted/30 font-medium text-[14px] hover:bg-muted/50 transition-all duration-200 [&>svg]:text-muted-foreground">
-                                    <div className="flex items-center">
-                                        <Clock className="mr-3 h-[18px] w-[18px] text-primary/70 shrink-0" />
-                                        <SelectValue placeholder="Selecciona una hora" />
+                            <div className="flex items-center justify-between">
+                                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Hora de Inicio</Label>
+                                <button
+                                    type="button"
+                                    onClick={() => !isReadOnly && setIsManualTime(!isManualTime)}
+                                    className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                                >
+                                    {isManualTime ? 'Seleccionar de lista' : 'Editar hora manualmente'}
+                                </button>
+                            </div>
+
+                            {isManualTime ? (
+                                <div className="flex items-center gap-2">
+                                    <div className="relative flex-1">
+                                        <Clock className="absolute left-3 top-3.5 h-[18px] w-[18px] text-primary/70 shrink-0" />
+                                        <Input
+                                            type="time"
+                                            value={formData.startTime}
+                                            onChange={(e) => !isReadOnly && setFormData(prev => ({ ...prev, startTime: e.target.value }))}
+                                            disabled={isSubmitting || isReadOnly}
+                                            className="h-12 pl-10 rounded-xl border-border/60 bg-muted/30 font-medium text-[14px]"
+                                        />
                                     </div>
-                                </SelectTrigger>
-                                <SelectContent className="max-h-64 rounded-2xl border-border/50 shadow-lg p-1">
-                                    {(() => {
-                                        const weekday = (date || new Date()).getDay();
-                                        const config = horarioConfig.dias?.[weekday] || { inicio: '08:00', fin: '17:00' };
-                                        const startH = parseInt((config.inicio || '08:00').split(':')[0]) || 8;
-                                        const endH = parseInt((config.fin || '17:00').split(':')[0]) || 17;
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setIsManualTime(false)}
+                                        className="h-12 px-3 rounded-xl text-xs"
+                                    >
+                                        Ver Lista
+                                    </Button>
+                                </div>
+                            ) : (
+                                <Select
+                                    value={formData.startTime}
+                                    onValueChange={(val) => !isReadOnly && setFormData(prev => ({ ...prev, startTime: val }))}
+                                    disabled={isSubmitting || isReadOnly}
+                                >
+                                    <SelectTrigger className="w-full h-12 rounded-xl border-border/60 bg-muted/30 font-medium text-[14px] hover:bg-muted/50 transition-all duration-200 [&>svg]:text-muted-foreground">
+                                        <div className="flex items-center">
+                                            <Clock className="mr-3 h-[18px] w-[18px] text-primary/70 shrink-0" />
+                                            <SelectValue placeholder="Selecciona una hora" />
+                                        </div>
+                                    </SelectTrigger>
+                                    <SelectContent className="max-h-64 rounded-2xl border-border/50 shadow-lg p-1">
+                                        {(() => {
+                                            const weekday = (date || new Date()).getDay();
+                                            const config = horarioConfig.dias?.[weekday] || { inicio: '08:00', fin: '17:00' };
+                                            const startH = parseInt((config.inicio || '08:00').split(':')[0]) || 8;
+                                            const endH = parseInt((config.fin || '17:00').split(':')[0]) || 17;
 
-                                        const isTodayDate = date && format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-                                        const now = new Date();
-                                        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                                            const isTodayDate = date && format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                                            const now = new Date();
+                                            const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-                                        const slots: { timeStr: string; label12h: string }[] = [];
-                                        for (let h = startH; h <= endH; h++) {
-                                            for (const m of ['00', '30']) {
-                                                if (h === endH && m === '30') continue;
-                                                const hh = String(h).padStart(2, '0');
-                                                const timeStr = `${hh}:${m}`;
-                                                const period = h >= 12 ? 'PM' : 'AM';
-                                                const h12 = h % 12 === 0 ? 12 : h % 12;
-                                                const label12h = `${h12}:${m} ${period}`;
-                                                slots.push({ timeStr, label12h });
+                                            const slots: { timeStr: string; label12h: string }[] = [];
+                                            for (let h = startH; h <= endH; h++) {
+                                                for (const m of ['00', '30']) {
+                                                    if (h === endH && m === '30') continue;
+                                                    const hh = String(h).padStart(2, '0');
+                                                    const timeStr = `${hh}:${m}`;
+                                                    const period = h >= 12 ? 'PM' : 'AM';
+                                                    const h12 = h % 12 === 0 ? 12 : h % 12;
+                                                    const label12h = `${h12}:${m} ${period}`;
+                                                    slots.push({ timeStr, label12h });
+                                                }
                                             }
-                                        }
 
-                                        return slots.map(slot => {
-                                            const isOccupied = !!getOverlappingAppointment(slot.timeStr);
-                                            let isPast = false;
-                                            if (isTodayDate) {
-                                                const [sh, sm] = slot.timeStr.split(':').map(Number);
-                                                if (sh * 60 + sm <= nowMinutes) isPast = true;
-                                            }
+                                            return slots.map(slot => {
+                                                const isOccupied = !!getOverlappingAppointment(slot.timeStr);
+                                                let isPast = false;
+                                                if (isTodayDate) {
+                                                    const [sh, sm] = slot.timeStr.split(':').map(Number);
+                                                    if (sh * 60 + sm <= nowMinutes) isPast = true;
+                                                }
 
-                                            const isDisabled = isOccupied || isPast;
+                                                const isDisabled = isOccupied || isPast;
 
-                                            return (
-                                                <SelectItem
-                                                    key={slot.timeStr}
-                                                    value={slot.timeStr}
-                                                    disabled={isDisabled}
-                                                    className={cn(
-                                                        'rounded-lg text-[13px] font-medium py-2.5 px-3.5 my-0.5 cursor-pointer transition-colors [&>span:first-child]:hidden',
-                                                        !isDisabled && 'hover:bg-primary/8 focus:bg-primary/10',
-                                                        isDisabled && 'opacity-35 cursor-not-allowed'
-                                                    )}
-                                                >
-                                                    <div className="flex items-center justify-between w-full">
-                                                        <span>{slot.label12h}</span>
-                                                        {isOccupied && (
-                                                            <span className="text-[10px] font-semibold text-destructive/80 bg-destructive/8 px-2 py-0.5 rounded-full ml-3">
-                                                                Ocupado
-                                                            </span>
+                                                return (
+                                                    <SelectItem
+                                                        key={slot.timeStr}
+                                                        value={slot.timeStr}
+                                                        disabled={isDisabled}
+                                                        className={cn(
+                                                            'rounded-lg text-[13px] font-medium py-2.5 px-3.5 my-0.5 cursor-pointer transition-colors [&>span:first-child]:hidden',
+                                                            !isDisabled && 'hover:bg-primary/8 focus:bg-primary/10',
+                                                            isDisabled && 'opacity-35 cursor-not-allowed'
                                                         )}
-                                                        {isPast && !isOccupied && (
-                                                            <span className="text-[10px] font-medium text-muted-foreground/60 ml-3">
-                                                                Pasado
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </SelectItem>
-                                            );
-                                        });
-                                    })()}
-                                </SelectContent>
-                            </Select>
+                                                    >
+                                                        <div className="flex items-center justify-between w-full">
+                                                            <span>{slot.label12h}</span>
+                                                            {isOccupied && (
+                                                                <span className="text-[10px] font-semibold text-destructive/80 bg-destructive/8 px-2 py-0.5 rounded-full ml-3">
+                                                                    Ocupado
+                                                                </span>
+                                                            )}
+                                                            {isPast && !isOccupied && (
+                                                                <span className="text-[10px] font-medium text-muted-foreground/60 ml-3">
+                                                                    Pasado
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </SelectItem>
+                                                );
+                                            });
+                                        })()}
+                                    </SelectContent>
+                                </Select>
+                            )}
+
+                            {/* Horas cerradas rápidas */}
+                            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                                <span className="text-[10px] text-muted-foreground font-semibold">Horas en punto:</span>
+                                {['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'].map((h) => (
+                                    <button
+                                        key={h}
+                                        type="button"
+                                        onClick={() => !isReadOnly && setFormData(prev => ({ ...prev, startTime: h }))}
+                                        className={cn(
+                                            "px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all border cursor-pointer",
+                                            formData.startTime === h
+                                                ? "bg-primary text-white border-primary shadow-xs"
+                                                : "bg-muted/40 text-muted-foreground border-border/60 hover:bg-muted hover:text-foreground"
+                                        )}
+                                    >
+                                        {h}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         {/* Modalidad */}
@@ -1596,27 +1718,6 @@ const NewAppointmentDialog = ({
                                                     </button>
                                                 );
                                             })}
-
-                                            {/* Opción Domicilio del Paciente */}
-                                            <button
-                                                type="button"
-                                                disabled={isReadOnly}
-                                                onClick={() => {
-                                                    setFormData(prev => ({ ...prev, location: 'Domicilio del paciente' }));
-                                                }}
-                                                className={cn(
-                                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all text-left",
-                                                    formData.location === 'Domicilio del paciente'
-                                                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs ring-1 ring-primary/30"
-                                                        : "border-border bg-card hover:bg-accent/50 text-muted-foreground"
-                                                )}
-                                            >
-                                                <Home className="h-3.5 w-3.5" />
-                                                <span>Domicilio del paciente</span>
-                                                {formData.location === 'Domicilio del paciente' && (
-                                                    <CheckCircle2 className="h-3.5 w-3.5 text-primary ml-1" />
-                                                )}
-                                            </button>
                                         </div>
 
                                         {/* Tarjeta de Detalle del Consultorio Seleccionado */}
@@ -1861,29 +1962,51 @@ const NewAppointmentDialog = ({
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="patientAge">Edad</Label>
-                                <Input
-                                    id="patientAge"
-                                    type="number"
-                                    placeholder="Ej. 25"
-                                    value={formData.patientAge}
-                                    onChange={(e) => !isReadOnly && setFormData({ ...formData, patientAge: e.target.value })}
-                                    disabled={isSubmitting || isReadOnly}
-                                />
+                        {/* Control de primera sesión: quitar edad y motivo excepto si es primera consulta */}
+                        <div className="flex items-center justify-between p-3.5 border border-border/70 rounded-xl bg-muted/20">
+                            <div className="space-y-0.5">
+                                <Label htmlFor="firstSessionToggle" className="text-xs font-semibold cursor-pointer">
+                                    ¿Es primera sesión / consulta inicial?
+                                </Label>
+                                <p className="text-[11px] text-muted-foreground">
+                                    {isFirstSession 
+                                        ? 'Se registrará edad y motivo de consulta inicial.' 
+                                        : 'Sesión de seguimiento: edad y motivo ocultos para evitar duplicación.'}
+                                </p>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="reasonForConsultation">Motivo de Consulta</Label>
-                                <Input
-                                    id="reasonForConsultation"
-                                    placeholder="Ej. Ansiedad, Depresión..."
-                                    value={formData.reasonForConsultation}
-                                    onChange={(e) => !isReadOnly && setFormData({ ...formData, reasonForConsultation: e.target.value })}
-                                    disabled={isSubmitting || isReadOnly}
-                                />
-                            </div>
+                            <Switch
+                                id="firstSessionToggle"
+                                checked={isFirstSession}
+                                onCheckedChange={(checked) => !isReadOnly && setIsFirstSession(checked)}
+                                disabled={isReadOnly}
+                            />
                         </div>
+
+                        {isFirstSession && (
+                            <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-200">
+                                <div className="space-y-2">
+                                    <Label htmlFor="patientAge">Edad</Label>
+                                    <Input
+                                        id="patientAge"
+                                        type="number"
+                                        placeholder="Ej. 25"
+                                        value={formData.patientAge}
+                                        onChange={(e) => !isReadOnly && setFormData({ ...formData, patientAge: e.target.value })}
+                                        disabled={isSubmitting || isReadOnly}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="reasonForConsultation">Motivo de Consulta</Label>
+                                    <Input
+                                        id="reasonForConsultation"
+                                        placeholder="Ej. Ansiedad, Depresión..."
+                                        value={formData.reasonForConsultation}
+                                        onChange={(e) => !isReadOnly && setFormData({ ...formData, reasonForConsultation: e.target.value })}
+                                        disabled={isSubmitting || isReadOnly}
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         {/* Notas */}
                         <div className="space-y-2">
@@ -1945,6 +2068,21 @@ const NewAppointmentDialog = ({
                                 </Button>
                             )}
                             
+                            {/* Inasistencia / No-Show para citas */}
+                            {isEditing && !isReadOnly && editingAppointment?.status !== 'cancelled' && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={handleNoShowAction}
+                                    disabled={isManagingNoShow}
+                                    className="mr-auto sm:ml-2 gap-1.5 border-rose-300 dark:border-rose-900 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-semibold"
+                                    title="Registrar inasistencia, aplicar penalización y enviar WhatsApp para reagendar"
+                                >
+                                    {isManagingNoShow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <AlertTriangle className="h-3.5 w-3.5 text-rose-600" />}
+                                    Inasistencia (No-Show)
+                                </Button>
+                            )}
+
                             {/* Entrar al Consultorio Virtual */}
                             {isEditing && (
                                 <Button

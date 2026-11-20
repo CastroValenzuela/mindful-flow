@@ -26,7 +26,7 @@ serve(async (req) => {
     if (userError || !user) throw new Error('No autorizado');
 
     const body = await req.json();
-    const { payment_id, action = 'create', invoice_id } = body;
+    const { payment_id, action = 'create', invoice_id, tax_mode = '8', tax_rate } = body;
     
     if (!payment_id && !invoice_id) throw new Error('ID requerido');
 
@@ -103,6 +103,16 @@ serve(async (req) => {
     else if (pmt.method === 'transferencia') paymentForm = '03';
     else if (pmt.method === 'stripe') paymentForm = '04';
 
+    // Configuración de impuestos IVA (8% estímulo frontera norte, 16% general, o Exento art. 15 LIVA)
+    let selectedTaxes: any[] = [{ type: 'IVA', factor: 'Tasa', rate: 0.08 }];
+    if (tax_mode === 'exento' || tax_rate === 0) {
+      selectedTaxes = [{ type: 'IVA', factor: 'Exento', rate: 0 }];
+    } else if (tax_mode === '16' || tax_rate === 0.16) {
+      selectedTaxes = [{ type: 'IVA', factor: 'Tasa', rate: 0.16 }];
+    } else if (tax_mode === '8' || tax_rate === 0.08) {
+      selectedTaxes = [{ type: 'IVA', factor: 'Tasa', rate: 0.08 }];
+    }
+
     const invoice = await facturapi.invoices.create({
       customer: {
         legal_name: patient.tax_name,
@@ -117,7 +127,7 @@ serve(async (req) => {
           description: `Consulta Psicológica - ${new Date(apt.start_time).toLocaleDateString('es-MX')}`,
           product_key: '85121608',
           price: Number(pmt.amount),
-          taxes: [{ type: 'IVA', factor: 'Exento', rate: 0 }]
+          taxes: selectedTaxes
         }
       }],
       payment_form: paymentForm,

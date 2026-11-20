@@ -107,6 +107,7 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
   const [showInactivityModal, setShowInactivityModal] = useState(false);
   const [showNomModal, setShowNomModal] = useState(false);
+  const [showChangelogModal, setShowChangelogModal] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [unreadWa, setUnreadWa] = useState(0);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -436,9 +437,9 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
             ))}
           </nav>
 
-          {/* Settings link — bottom of sidebar */}
-          <div className={cn('border-t border-white/15 dark:border-white/5 pt-4 pb-6 mt-auto', collapsed ? 'px-2' : 'px-3')}>
-            <div className="relative group/nav">
+          {/* Settings and Version Badge — bottom of sidebar */}
+          <div className={cn('border-t border-white/15 dark:border-white/5 pt-3 pb-5 mt-auto', collapsed ? 'px-2' : 'px-3')}>
+            <div className="relative group/nav mb-2">
               <NavLink
                 to="/settings"
                 onClick={() => setSidebarOpen(false)}
@@ -477,6 +478,52 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
                   'transition-all duration-150'
                 )}>
                   Configuración
+                </div>
+              )}
+            </div>
+
+            {/* Version Badge MVP */}
+            <div className="relative group/version">
+              <button
+                type="button"
+                onClick={() => setShowChangelogModal(true)}
+                className={cn(
+                  "w-full flex items-center rounded-xl transition-all duration-200 cursor-pointer",
+                  collapsed
+                    ? "justify-center h-9 w-9 mx-auto text-muted-foreground/80 hover:text-foreground hover:bg-white/50 dark:hover:bg-white/10"
+                    : "justify-between px-3 py-2 bg-muted/40 hover:bg-muted/70 border border-border/50 text-foreground"
+                )}
+                title="Ver versión y novedades"
+              >
+                {collapsed ? (
+                  <div className="flex flex-col items-center justify-center">
+                    <span className="text-[9px] font-bold tracking-tight text-primary">v1.0</span>
+                    <span className="text-[7px] text-muted-foreground uppercase font-mono">MVP</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span className="text-xs font-semibold text-foreground/90 truncate">Saudade</span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
+                      v1.0.0 MVP
+                    </span>
+                  </>
+                )}
+              </button>
+              {collapsed && (
+                <div className={cn(
+                  'pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-[100]',
+                  'rounded-lg bg-popover border border-border px-2.5 py-1.5 shadow-lg',
+                  'text-xs font-medium text-popover-foreground whitespace-nowrap',
+                  'opacity-0 translate-x-1 group-hover/version:opacity-100 group-hover/version:translate-x-0',
+                  'transition-all duration-150'
+                )}>
+                  Saudade v1.0.0 (MVP) · Novedades
                 </div>
               )}
             </div>
@@ -636,6 +683,89 @@ const Layout = ({ children, activePatient, activePatientTab, onPatientTabChange 
 
           <div className="mt-4 flex justify-end">
             <Button variant="zen" size="sm" onClick={() => setShowNomModal(false)} className="rounded-xl px-6 font-bold">
+              Entendido
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Versión y Novedades (Changelog) */}
+      <Dialog open={showChangelogModal} onOpenChange={setShowChangelogModal}>
+        <DialogContent className="sm:max-w-lg rounded-3xl border border-border/60 p-6 backdrop-blur-2xl">
+          <DialogHeader className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="text-base font-bold">Saudade App</DialogTitle>
+                  <Badge variant="zen" className="text-[10px] px-2 py-0.5 font-mono">v1.0.0 MVP</Badge>
+                </div>
+                <DialogDescription className="text-xs text-muted-foreground font-medium">
+                  Plataforma Clínica para Psicólogos · Novedades del Release
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="p-3 bg-muted/40 rounded-2xl border border-border/40 text-xs text-muted-foreground">
+              Estás navegando en la versión oficial <strong className="text-foreground font-semibold">v1.0.0 MVP</strong>, optimizada para práctica clínica profesional en México bajo lineamientos NOM-004-SSA3, NOM-024-SSA3 y SAT CFDI 4.0.
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Últimas Mejoras Incorporadas
+              </h4>
+
+              <div className="space-y-2 text-xs">
+                <div className="p-2.5 rounded-xl border border-border/50 bg-card flex items-start gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 shrink-0 mt-0.5">
+                    <CheckSquare className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Tareas Terapéuticas en el Expediente</p>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">Asigna ejercicios y lecturas entre sesiones con recordatorios directos a WhatsApp del paciente.</p>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl border border-border/50 bg-card flex items-start gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5">
+                    <DollarSign className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Facturación SAT 8% y 0% Exento</p>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">Soporte fiscal para Estímulo Fronterizo (8%) y servicios psicológicos exentos (Art. 15 Fracc. XIV LIVA).</p>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl border border-border/50 bg-card flex items-start gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-600 shrink-0 mt-0.5">
+                    <FileText className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Notas a Mano Alzada y Transcripción IA</p>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">Dibuja notas manuscritas, transcríbelas a texto clínico con IA e imprime en membrete oficial NOM-004.</p>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl border border-border/50 bg-card flex items-start gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-600 shrink-0 mt-0.5">
+                    <Calendar className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Agenda Protegida & Inasistencias</p>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">Tope de citas a 90 días, horas cerradas en punto y gestión de no-shows con mensaje de reagendamiento.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-border/50">
+            <span className="text-[10px] text-muted-foreground font-mono">Build 2026.11 · Producción</span>
+            <Button variant="zen" size="sm" onClick={() => setShowChangelogModal(false)} className="rounded-xl px-5 font-bold text-xs">
               Entendido
             </Button>
           </div>

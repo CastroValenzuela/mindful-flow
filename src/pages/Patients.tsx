@@ -38,8 +38,12 @@ import {
   FolderOpen,
   FileSignature,
   Edit3,
-  ChevronDown
+  ChevronDown,
+  Printer,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
+import NewAppointmentDialog from '@/components/agenda/NewAppointmentDialog';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -95,7 +99,7 @@ import { getMSECategoryLabel } from '@/lib/mentalStatusConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePatientDetails } from '@/hooks/usePatientDetails';
 import { useSubscription } from '@/hooks/useSubscription';
-import { generateExpedientePDF, generateSessionNotePDF } from '@/lib/generateExpedientePDF';
+import { generateExpedientePDF, generateSessionNotePDF, printSessionNotePDF } from '@/lib/generateExpedientePDF';
 import NoteEditorSheet from '@/components/patients/NoteEditorSheet';
 import PatientAsyncInsights from '@/components/patients/PatientAsyncInsights';
 import { getAvatarTheme, getInitials } from '@/lib/avatar-utils';
@@ -126,6 +130,7 @@ const PATIENT_TABS = [
     { id: 'history', label: 'Historia Clínica', icon: ClipboardList },
     { id: 'async-insights', label: 'Seguimiento IA', icon: Sparkles },
     { id: 'notes', label: 'Notas de Sesión', icon: FileText },
+    { id: 'tasks', label: 'Tareas y Ejercicios', icon: CheckSquare },
     { id: 'tests', label: 'Pruebas', icon: Brain },
     { id: 'info', label: 'Datos Personales', icon: User },
     { id: 'documents', label: 'Documentos', icon: FolderOpen },
@@ -140,7 +145,7 @@ const TAB_GROUPS = [
     },
     {
         title: 'SESIONES Y HERRAMIENTAS',
-        tabs: ['notes', 'tests']
+        tabs: ['notes', 'tasks', 'tests']
     },
     {
         title: 'GESTIÓN',
@@ -384,6 +389,72 @@ const Patients = () => {
   const [searchRefreshTrigger, setSearchRefreshTrigger] = useState(0);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [isExportingNoteId, setIsExportingNoteId] = useState<string | null>(null);
+  const [isPrintingNoteId, setIsPrintingNoteId] = useState<string | null>(null);
+  const [isBookingOpen, setIsBookingOpen] = useState(false);
+
+  // Patient Tasks state
+  const [patientTasks, setPatientTasks] = useState<{ id: string; text: string; completed: boolean; dueDate?: string; created_at: string }[]>([]);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+
+  useEffect(() => {
+    if (selectedPatient) {
+      try {
+        const saved = localStorage.getItem(`saudade_patient_tasks_${selectedPatient}`);
+        setPatientTasks(saved ? JSON.parse(saved) : []);
+      } catch (e) {
+        setPatientTasks([]);
+      }
+    } else {
+      setPatientTasks([]);
+    }
+  }, [selectedPatient]);
+
+  const savePatientTasks = (updated: typeof patientTasks) => {
+    setPatientTasks(updated);
+    if (selectedPatient) {
+      localStorage.setItem(`saudade_patient_tasks_${selectedPatient}`, JSON.stringify(updated));
+    }
+  };
+
+  const handleAddTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskText.trim()) return;
+    const taskObj = {
+      id: crypto.randomUUID(),
+      text: newTaskText.trim(),
+      completed: false,
+      dueDate: newTaskDueDate || undefined,
+      created_at: new Date().toISOString()
+    };
+    const updated = [taskObj, ...patientTasks];
+    savePatientTasks(updated);
+    setNewTaskText('');
+    setNewTaskDueDate('');
+    toast.success('Tarea asignada al expediente del paciente');
+  };
+
+  const handleToggleTask = (taskId: string) => {
+    const updated = patientTasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t);
+    savePatientTasks(updated);
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    const updated = patientTasks.filter(t => t.id !== taskId);
+    savePatientTasks(updated);
+    toast.success('Tarea eliminada');
+  };
+
+  const handleSendTaskWhatsApp = (taskText: string) => {
+    if (!selectedPatientData?.phone) {
+      toast.error('El paciente no tiene teléfono registrado');
+      return;
+    }
+    const cleanPhone = selectedPatientData.phone.replace(/[^0-9]/g, '');
+    const patientFirstName = selectedPatientData.name?.split(' ')[0] || 'paciente';
+    const msg = `¡Hola, ${patientFirstName}! 👋 Te comparto un recordatorio de tu tarea terapéutica:\n\n📋 *${taskText}*\n\n¡Cada avance cuenta! Si tienes cualquier duda, me puedes responder por aquí.`;
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
   
   const [viewingTest, setViewingTest] = useState<PatientTest | null>(null);
   const [isAssignTestOpen, setIsAssignTestOpen] = useState(false);
@@ -719,6 +790,37 @@ const Patients = () => {
       toast.error('Error al generar PDF: ' + err.message);
     } finally {
       setIsExportingNoteId(null);
+    }
+  };
+
+  const handlePrintNote = async (note: SessionNote) => {
+    if (!selectedPatientData) return;
+    setIsPrintingNoteId(note.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No hay sesión activa");
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('full_name, prefix, cedulas, signature_data, logo_data')
+        .eq('id', user.id)
+        .single();
+
+      printSessionNotePDF(
+        { 
+          name: selectedPatientData.name, 
+          id: selectedPatientData.id, 
+          date_of_birth: selectedPatientData.date_of_birth 
+        },
+        note as any,
+        prof || undefined
+      );
+      toast.success('Abriendo vista de impresión conforme a NOM-004');
+    } catch (err: any) {
+      console.error('Error printing PDF:', err);
+      toast.error('Error al imprimir: ' + err.message);
+    } finally {
+      setIsPrintingNoteId(null);
     }
   };
 
@@ -1073,6 +1175,7 @@ const FORBIDDEN_FILE_EXTENSIONS = new Set([
                       setSelectedPatient(null);
                     }
                   }} 
+                  onScheduleAppointment={() => setIsBookingOpen(true)}
                 />
 
                 {/* Mobile Navigation (iOS-Style Bottom Sheet Selector) - Moved below Patient Header Card */}
@@ -1739,6 +1842,24 @@ const FORBIDDEN_FILE_EXTENSIONS = new Set([
                                             className="h-8 text-xs gap-1.5 hover:bg-primary/5 transition-colors"
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              handlePrintNote(note);
+                                            }}
+                                            disabled={isPrintingNoteId === note.id}
+                                            title="Imprimir nota clínica con formato oficial NOM-004"
+                                          >
+                                            {isPrintingNoteId === note.id ? (
+                                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            ) : (
+                                              <Printer className="h-3.5 w-3.5" />
+                                            )}
+                                            Imprimir
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 text-xs gap-1.5 hover:bg-primary/5 transition-colors"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
                                               handleDownloadNote(note);
                                             }}
                                             disabled={isExportingNoteId === note.id}
@@ -2154,6 +2275,128 @@ const FORBIDDEN_FILE_EXTENSIONS = new Set([
                           <TabsContent value="async-insights" className="m-0 animate-in fade-in duration-500">
                             <PatientAsyncInsights patientId={selectedPatientData.id} />
                           </TabsContent>
+                          <TabsContent value="tasks" className="m-0 animate-in fade-in duration-500">
+                            <div className="bg-card border rounded-2xl p-6 shadow-xs space-y-6">
+                              <div>
+                                <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                                  <CheckSquare className="h-5 w-5 text-primary" />
+                                  Tareas Terapéuticas y Ejercicios Entre Sesiones
+                                </h3>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Asigna lecturas, diarios de autorregistro o ejercicios de introspección para el paciente.
+                                </p>
+                              </div>
+
+                              {/* Formulario para asignar nueva tarea */}
+                              <form onSubmit={handleAddTask} className="p-4 bg-muted/30 border rounded-xl space-y-3">
+                                <p className="text-xs font-semibold text-foreground">Asignar nueva tarea o ejercicio</p>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                  <Input
+                                    placeholder="Ej. Registro de pensamientos automáticos, respiración diafragmática 5 min..."
+                                    value={newTaskText}
+                                    onChange={(e) => setNewTaskText(e.target.value)}
+                                    className="flex-1 text-xs h-10 rounded-lg bg-background"
+                                  />
+                                  <Input
+                                    type="date"
+                                    value={newTaskDueDate}
+                                    onChange={(e) => setNewTaskDueDate(e.target.value)}
+                                    className="w-full sm:w-44 text-xs h-10 rounded-lg bg-background"
+                                    title="Fecha límite (opcional)"
+                                  />
+                                  <Button type="submit" variant="zen" className="h-10 px-5 text-xs font-semibold gap-1.5 shrink-0">
+                                    <Plus className="h-4 w-4" /> Asignar Tarea
+                                  </Button>
+                                </div>
+                              </form>
+
+                              {/* Lista de Tareas */}
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                    Plan de Tareas Asignadas ({patientTasks.length})
+                                  </h4>
+                                  {patientTasks.length > 0 && (
+                                    <span className="text-xs text-muted-foreground font-medium">
+                                      {patientTasks.filter(t => t.completed).length} completadas · {patientTasks.filter(t => !t.completed).length} pendientes
+                                    </span>
+                                  )}
+                                </div>
+
+                                {patientTasks.length === 0 ? (
+                                  <div className="text-center py-12 bg-muted/10 border border-dashed rounded-xl p-6">
+                                    <ClipboardList className="h-10 w-10 text-muted-foreground/40 mx-auto mb-2" />
+                                    <p className="text-sm font-medium text-muted-foreground">No hay tareas asignadas para este paciente.</p>
+                                    <p className="text-xs text-muted-foreground/70 mt-1">Utiliza el formulario de arriba para asignar actividades o compromisos terapéuticos.</p>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {patientTasks.map((task) => (
+                                      <div
+                                        key={task.id}
+                                        className={cn(
+                                          "flex items-center justify-between p-3.5 rounded-xl border transition-all text-sm",
+                                          task.completed
+                                            ? "bg-muted/30 border-border/50 text-muted-foreground"
+                                            : "bg-card border-border hover:border-primary/40 shadow-xs"
+                                        )}
+                                      >
+                                        <div className="flex items-start gap-3 flex-1 min-w-0 pr-3">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleTask(task.id)}
+                                            className="mt-0.5 text-primary hover:text-primary/80 transition-colors"
+                                            title={task.completed ? "Marcar como pendiente" : "Marcar como completada"}
+                                          >
+                                            {task.completed ? (
+                                              <CheckSquare className="h-5 w-5 text-emerald-600" />
+                                            ) : (
+                                              <Square className="h-5 w-5 text-muted-foreground" />
+                                            )}
+                                          </button>
+                                          <div className="min-w-0 flex-1">
+                                            <p className={cn("font-medium", task.completed && "line-through text-muted-foreground")}>
+                                              {task.text}
+                                            </p>
+                                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                              <span>Asignada: {format(parseISO(task.created_at), 'd MMM yyyy', { locale: es })}</span>
+                                              {task.dueDate && <span>Vence: {format(parseISO(task.dueDate), 'd MMM yyyy', { locale: es })}</span>}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          {selectedPatientData?.phone && (
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              className="h-8 text-xs gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200"
+                                              onClick={() => handleSendTaskWhatsApp(task.text)}
+                                              title="Enviar recordatorio por WhatsApp"
+                                            >
+                                              <Send className="h-3.5 w-3.5" />
+                                              <span className="hidden sm:inline">WhatsApp</span>
+                                            </Button>
+                                          )}
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-600 hover:bg-rose-50"
+                                            onClick={() => handleDeleteTask(task.id)}
+                                            title="Eliminar tarea"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TabsContent>
                         </div>
                       </div>
                     </div>
@@ -2488,6 +2731,14 @@ const FORBIDDEN_FILE_EXTENSIONS = new Set([
           setEditingPatient(null);
         }}
         editingPatient={editingPatient}
+      />
+
+      {/* Schedule Appointment directly from Patient File */}
+      <NewAppointmentDialog
+        open={isBookingOpen}
+        onOpenChange={setIsBookingOpen}
+        onAppointmentAdded={fetchPatients}
+        initialPatient={selectedPatientData}
       />
 
       {/* Import Patients Dialog (Excel / CSV) */}

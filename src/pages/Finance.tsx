@@ -20,6 +20,15 @@ import { CSS } from '@dnd-kit/utilities';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -176,13 +185,15 @@ const Finance = () => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setCollapsed(p => ({ ...p, [key]: !p[key] }));
   const [generatingInvoiceId, setGeneratingInvoiceId] = useState<string | null>(null);
+  const [invoicingPayment, setInvoicingPayment] = useState<any | null>(null);
+  const [selectedTaxMode, setSelectedTaxMode] = useState<'8' | 'exento' | '16'>('8');
   const [isNewIncomeOpen, setIsNewIncomeOpen] = useState(false);
 
-  const handleGenerateInvoice = async (paymentId: string) => {
+  const handleGenerateInvoice = async (paymentId: string, taxMode: '8' | 'exento' | '16' = '8') => {
     setGeneratingInvoiceId(paymentId);
     try {
       const { data, error: funcError } = await supabase.functions.invoke('generate-invoice', {
-        body: { payment_id: paymentId, action: 'create' }
+        body: { payment_id: paymentId, action: 'create', tax_mode: taxMode }
       });
 
       if (funcError) throw new Error(funcError.message);
@@ -191,7 +202,8 @@ const Finance = () => {
         throw new Error(data.error || 'Error desconocido en el servidor');
       }
 
-      toast.success('Factura generada exitosamente');
+      toast.success('Factura timbrada exitosamente con el SAT');
+      setInvoicingPayment(null);
       fetchData(); // Refresh to show the new invoice
     } catch (err: unknown) {
       const error = err as Error;
@@ -1101,7 +1113,7 @@ const Finance = () => {
                                           </DropdownMenuContent>
                                         </DropdownMenu>
                                       ) : (
-                                        <Button variant="outline" size="sm" onClick={() => handleGenerateInvoice(p.id)} disabled={generatingInvoiceId === p.id} className="gap-1">
+                                        <Button variant="outline" size="sm" onClick={() => setInvoicingPayment(p)} disabled={generatingInvoiceId === p.id} className="gap-1">
                                           {generatingInvoiceId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5 text-muted-foreground" />}
                                           Facturar
                                         </Button>
@@ -1155,6 +1167,130 @@ const Finance = () => {
         onOpenChange={setIsNewIncomeOpen}
         onSuccess={fetchData}
       />
+
+      {/* Modal para Emitir Factura CFDI 4.0 con Selección de Tasa de IVA (8%, Exento, 16%) */}
+      <Dialog open={!!invoicingPayment} onOpenChange={(open) => { if (!open) setInvoicingPayment(null); }}>
+        <DialogContent className="sm:max-w-[490px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-primary" />
+              Emitir Factura CFDI 4.0
+            </DialogTitle>
+            <DialogDescription>
+              Configura la tasa de IVA y confirma los datos antes de timbrar con el SAT.
+            </DialogDescription>
+          </DialogHeader>
+
+          {invoicingPayment && (
+            <div className="space-y-4 py-2">
+              {/* Resumen del cobro */}
+              <div className="p-3.5 rounded-xl border border-border/80 bg-muted/40 space-y-1 text-xs">
+                <div className="flex justify-between font-semibold text-foreground">
+                  <span>Paciente:</span>
+                  <span>{invoicingPayment.patient_name || 'Paciente'}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Monto de la sesión:</span>
+                  <span className="font-bold text-foreground text-sm">${Number(invoicingPayment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</span>
+                </div>
+              </div>
+
+              {/* Selector de Tasa de IVA */}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Tasa de Impuesto IVA a Facturar
+                </Label>
+                <div className="grid grid-cols-1 gap-2">
+                  {/* Opción 8% */}
+                  <div
+                    onClick={() => setSelectedTaxMode('8')}
+                    className={cn(
+                      "p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-3",
+                      selectedTaxMode === '8'
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                        : "border-border hover:bg-muted/30"
+                    )}
+                  >
+                    <div className={cn("h-4 w-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0", selectedTaxMode === '8' ? "border-primary bg-primary text-white" : "border-muted-foreground")}>
+                      {selectedTaxMode === '8' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </div>
+                    <div className="text-xs space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-foreground">Tasa 8% (Estímulo Fiscal Fronterizo)</span>
+                        <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary font-bold">Recomendado</Badge>
+                      </div>
+                      <p className="text-muted-foreground text-[11px]">Para prestadores de servicios en Región Fronteriza Norte y Sur.</p>
+                    </div>
+                  </div>
+
+                  {/* Opción Exento 0% */}
+                  <div
+                    onClick={() => setSelectedTaxMode('exento')}
+                    className={cn(
+                      "p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-3",
+                      selectedTaxMode === 'exento'
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                        : "border-border hover:bg-muted/30"
+                    )}
+                  >
+                    <div className={cn("h-4 w-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0", selectedTaxMode === 'exento' ? "border-primary bg-primary text-white" : "border-muted-foreground")}>
+                      {selectedTaxMode === 'exento' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </div>
+                    <div className="text-xs space-y-0.5">
+                      <span className="font-bold text-foreground">Exento de IVA (0% - Art. 15 Fracc. XIV LIVA)</span>
+                      <p className="text-muted-foreground text-[11px]">Servicios médicos y de psicología prestados por personas físicas con cédula profesional.</p>
+                    </div>
+                  </div>
+
+                  {/* Opción 16% */}
+                  <div
+                    onClick={() => setSelectedTaxMode('16')}
+                    className={cn(
+                      "p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-3",
+                      selectedTaxMode === '16'
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                        : "border-border hover:bg-muted/30"
+                    )}
+                  >
+                    <div className={cn("h-4 w-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0", selectedTaxMode === '16' ? "border-primary bg-primary text-white" : "border-muted-foreground")}>
+                      {selectedTaxMode === '16' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </div>
+                    <div className="text-xs space-y-0.5">
+                      <span className="font-bold text-foreground">Tasa 16% (Tasa General Nacional)</span>
+                      <p className="text-muted-foreground text-[11px]">Tasa estándar con traslado de IVA para personas morales o servicios no clínicos.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Aclaración SAT */}
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
+                <span className="font-bold block">Aclaración Fiscal SAT:</span>
+                <p>Las consultas psicológicas en México comúnmente están exentas de IVA si cuentas con cédula profesional registrada. En zonas fronterizas con estímulo fiscal aplica el 8% en lugar del 16% general.</p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setInvoicingPayment(null)} disabled={!!generatingInvoiceId}>
+              Cancelar
+            </Button>
+            <Button
+              variant="zen"
+              onClick={() => {
+                if (invoicingPayment) {
+                  handleGenerateInvoice(invoicingPayment.id, selectedTaxMode);
+                }
+              }}
+              disabled={!!generatingInvoiceId}
+              className="gap-2 font-bold"
+            >
+              {generatingInvoiceId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
+              {generatingInvoiceId ? 'Timbrando con SAT...' : `Facturar al ${selectedTaxMode === 'exento' ? '0% (Exento)' : selectedTaxMode === '8' ? '8%' : '16%'}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 };

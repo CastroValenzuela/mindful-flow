@@ -10,9 +10,10 @@ import { getAvatarTheme, getInitials } from '@/lib/avatar-utils';
 interface PatientHeaderProps {
   patient: any;
   onBack: () => void;
+  onScheduleAppointment?: () => void;
 }
 
-export const PatientHeader: React.FC<PatientHeaderProps> = ({ patient, onBack }) => {
+export const PatientHeader: React.FC<PatientHeaderProps> = ({ patient, onBack, onScheduleAppointment }) => {
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between bg-card p-5 rounded-2xl border border-border shadow-soft mb-6">
       <div className="flex items-center gap-4 w-full lg:w-auto">
@@ -76,6 +77,19 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({ patient, onBack })
             <Calendar className="h-3.5 w-3.5 text-primary" />
             <span className="text-xs">Última: {format(new Date(patient.last_session), 'd MMM', { locale: es })}</span>
           </div>
+        )}
+
+        {onScheduleAppointment && (
+          <Button
+            variant="zen"
+            size="sm"
+            onClick={onScheduleAppointment}
+            className="gap-1.5 text-xs font-semibold shadow-xs"
+            title="Agendar nueva cita con este paciente"
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            <span>Agendar Cita</span>
+          </Button>
         )}
       </div>
     </div>

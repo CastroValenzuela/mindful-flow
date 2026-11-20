@@ -21,8 +21,11 @@ import {
     Mail, Phone, Calendar, FileText, Brain, MessageCircle,
     ShieldCheck, FileSignature, CheckCircle2, XCircle,
     AlertTriangle, Plus, History, ShoppingCart, TrendingUp,
-    ExternalLink, ClipboardList
+    ExternalLink, ClipboardList, Printer, CheckSquare, Square, Send
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import NewAppointmentDialog from '@/components/agenda/NewAppointmentDialog';
+import { printSessionNotePDF } from '@/lib/generateExpedientePDF';
 import { tagColors } from '@/lib/mockData';
 import { supabase } from '@/lib/supabase';
 import { psychometricTests } from '@/lib/psychometricTests';
@@ -128,6 +131,71 @@ const PatientSlideOver = ({
     const [dataLoading, setDataLoading] = useState(false);
     const [viewingTest, setViewingTest] = useState<any | null>(null);
 
+    // ── Booking & Tasks state ────────────────────────────────────────────────
+    const [isBookingOpen, setIsBookingOpen] = useState(false);
+    const [tasks, setTasks] = useState<{ id: string; text: string; completed: boolean; dueDate?: string; created_at: string }[]>([]);
+    const [newTaskText, setNewTaskText] = useState('');
+    const [newTaskDueDate, setNewTaskDueDate] = useState('');
+
+    const loadTasks = useCallback((patientId: string) => {
+        try {
+            const saved = localStorage.getItem(`saudade_patient_tasks_${patientId}`);
+            if (saved) {
+                setTasks(JSON.parse(saved));
+            } else {
+                setTasks([]);
+            }
+        } catch (e) {
+            setTasks([]);
+        }
+    }, []);
+
+    const saveTasks = (newTasks: typeof tasks) => {
+        setTasks(newTasks);
+        if (patient?.id) {
+            localStorage.setItem(`saudade_patient_tasks_${patient.id}`, JSON.stringify(newTasks));
+        }
+    };
+
+    const handleAddTask = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newTaskText.trim()) return;
+        const taskObj = {
+            id: crypto.randomUUID(),
+            text: newTaskText.trim(),
+            completed: false,
+            dueDate: newTaskDueDate || undefined,
+            created_at: new Date().toISOString()
+        };
+        const updated = [taskObj, ...tasks];
+        saveTasks(updated);
+        setNewTaskText('');
+        setNewTaskDueDate('');
+        toast.success('Tarea clínica agregada al expediente');
+    };
+
+    const handleToggleTask = (taskId: string) => {
+        const updated = tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t);
+        saveTasks(updated);
+    };
+
+    const handleDeleteTask = (taskId: string) => {
+        const updated = tasks.filter(t => t.id !== taskId);
+        saveTasks(updated);
+        toast.success('Tarea eliminada');
+    };
+
+    const handleSendTaskWhatsApp = (taskText: string) => {
+        if (!patient?.phone) {
+            toast.error('El paciente no tiene teléfono registrado');
+            return;
+        }
+        const cleanPhone = patient.phone.replace(/[^0-9]/g, '');
+        const patientFirstName = patient.name.split(' ')[0] || patient.name;
+        const msg = `¡Hola, ${patientFirstName}! 👋 Te comparto tu tarea asignada para nuestra próxima sesión terapéutica:\n\n📋 *${taskText}*\n\n¡Cada avance cuenta! Si tienes cualquier duda, me puedes responder por aquí.`;
+        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    };
+
     const hasValidConsent = consents.some(c => c.is_valid);
 
     // ── Fetch consents when patient changes ───────────────────────────────────
@@ -183,12 +251,14 @@ const PatientSlideOver = ({
     useEffect(() => {
         if (patient) {
             fetchPatientData(patient);
+            loadTasks(patient.id);
         } else {
             setConsents([]);
             setTests([]);
             setPayments([]);
+            setTasks([]);
         }
-    }, [patient, fetchPatientData]);
+    }, [patient, fetchPatientData, loadTasks]);
 
     // Close on Escape
     useEffect(() => {
@@ -269,6 +339,16 @@ const PatientSlideOver = ({
 
                             {/* Actions */}
                             <div className="flex items-center gap-1">
+                                <Button 
+                                    variant="zen" 
+                                    size="sm" 
+                                    className="h-8 px-2.5 text-xs font-semibold gap-1.5 shadow-xs" 
+                                    onClick={() => setIsBookingOpen(true)}
+                                    title="Agendar Cita para este paciente"
+                                >
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    <span className="hidden sm:inline">Agendar Cita</span>
+                                </Button>
                                 <Button variant="ghost" size="icon-sm" title="Exportar PDF" onClick={onExportPDF} disabled={isExportingPDF}>
                                     {isExportingPDF ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                                 </Button>
@@ -311,6 +391,15 @@ const PatientSlideOver = ({
                                     <TabsList className="w-full justify-start gap-1 bg-transparent h-12 overflow-x-auto no-scrollbar scroll-smooth p-1">
                                         <TabsTrigger value="info" className="flex-shrink-0">Info</TabsTrigger>
                                         <TabsTrigger value="history" className="flex-shrink-0">Notas</TabsTrigger>
+                                        <TabsTrigger value="tasks" className="flex-shrink-0 flex items-center gap-1.5">
+                                            <ClipboardList className="h-3.5 w-3.5" />
+                                            <span>Tareas</span>
+                                            {tasks.filter(t => !t.completed).length > 0 && (
+                                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-primary/15 text-primary font-bold">
+                                                    {tasks.filter(t => !t.completed).length}
+                                                </Badge>
+                                            )}
+                                        </TabsTrigger>
                                         <TabsTrigger value="timeline" className="flex-shrink-0">360°</TabsTrigger>
                                         <TabsTrigger value="evolution" className="flex-shrink-0">Evolución</TabsTrigger>
                                         <TabsTrigger value="tests" className="flex-shrink-0">Tests</TabsTrigger>
@@ -512,10 +601,166 @@ const PatientSlideOver = ({
                                                             <span className="font-medium">{note.mood.rating}/100</span>
                                                         </div>
                                                     )}
+
+                                                    <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 text-xs gap-1.5 hover:bg-muted"
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                try {
+                                                                    const { data: { user } } = await supabase.auth.getUser();
+                                                                    const { data: prof } = await supabase
+                                                                        .from('profiles')
+                                                                        .select('full_name, prefix, cedulas, signature_data, logo_data')
+                                                                        .eq('id', user?.id)
+                                                                        .single();
+                                                                    printSessionNotePDF(
+                                                                        { name: patient.name, id: patient.id, date_of_birth: patient.date_of_birth },
+                                                                        note as any,
+                                                                        prof || undefined
+                                                                    );
+                                                                    toast.success('Abriendo vista de impresión conforme a NOM-004');
+                                                                } catch (err: any) {
+                                                                    toast.error('Error al imprimir: ' + err.message);
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Printer className="h-3.5 w-3.5 text-muted-foreground" />
+                                                            <span>Imprimir Nota</span>
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-7 text-xs text-primary gap-1"
+                                                            onClick={() => navigate('/notes')}
+                                                        >
+                                                            <span>Ver en Notas</span>
+                                                            <ExternalLink className="h-3 w-3" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
+                                </TabsContent>
+
+                                {/* Tab: Tareas Asignadas */}
+                                <TabsContent value="tasks" className="p-6 space-y-5">
+                                    {/* Formulario para añadir nueva tarea */}
+                                    <form onSubmit={handleAddTask} className="p-4 rounded-xl border border-border/70 bg-card space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                                <ClipboardList className="h-4 w-4 text-primary" />
+                                                Asignar Tarea / Ejercicio al Paciente
+                                            </span>
+                                            <span className="text-[10px] text-muted-foreground">Visibles en portal y seguimiento</span>
+                                        </div>
+
+                                        <div className="flex flex-col sm:flex-row gap-2">
+                                            <Input
+                                                placeholder="Ej. Registro de pensamientos automáticos, respiración diafragmática 5 min..."
+                                                value={newTaskText}
+                                                onChange={(e) => setNewTaskText(e.target.value)}
+                                                className="flex-1 text-xs h-9 rounded-lg"
+                                            />
+                                            <Input
+                                                type="date"
+                                                value={newTaskDueDate}
+                                                onChange={(e) => setNewTaskDueDate(e.target.value)}
+                                                className="w-full sm:w-36 text-xs h-9 rounded-lg"
+                                                title="Fecha límite (opcional)"
+                                            />
+                                            <Button type="submit" variant="zen" size="sm" className="h-9 px-4 text-xs font-semibold gap-1.5">
+                                                <Plus className="h-3.5 w-3.5" /> Asignar
+                                            </Button>
+                                        </div>
+                                    </form>
+
+                                    {/* Lista de Tareas */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                Plan de Tareas ({tasks.length})
+                                            </h4>
+                                            {tasks.length > 0 && (
+                                                <span className="text-[11px] text-muted-foreground">
+                                                    {tasks.filter(t => t.completed).length} completadas · {tasks.filter(t => !t.completed).length} pendientes
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {tasks.length === 0 ? (
+                                            <div className="text-center py-10 bg-muted/20 border border-dashed rounded-xl p-6">
+                                                <ClipboardList className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+                                                <p className="text-xs text-muted-foreground font-medium">No hay tareas asignadas para este paciente.</p>
+                                                <p className="text-[11px] text-muted-foreground/70 mt-1">Escribe arriba un ejercicio o tarea entre sesiones para registrarlo.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {tasks.map((task) => (
+                                                    <div
+                                                        key={task.id}
+                                                        className={cn(
+                                                            "flex items-center justify-between p-3 rounded-xl border transition-all text-xs",
+                                                            task.completed
+                                                                ? "bg-muted/30 border-border/50 text-muted-foreground"
+                                                                : "bg-card border-border/80 hover:border-primary/40 shadow-xs"
+                                                        )}
+                                                    >
+                                                        <div className="flex items-start gap-2.5 flex-1 min-w-0 pr-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleTask(task.id)}
+                                                                className="mt-0.5 text-primary hover:text-primary/80 transition-colors"
+                                                            >
+                                                                {task.completed ? (
+                                                                    <CheckSquare className="h-4 w-4 text-emerald-600" />
+                                                                ) : (
+                                                                    <Square className="h-4 w-4 text-muted-foreground" />
+                                                                )}
+                                                            </button>
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className={cn("font-medium truncate", task.completed && "line-through text-muted-foreground")}>
+                                                                    {task.text}
+                                                                </p>
+                                                                <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+                                                                    <span>Asignada: {format(parseISO(task.created_at), 'd MMM yyyy', { locale: es })}</span>
+                                                                    {task.dueDate && <span>Vence: {format(parseISO(task.dueDate), 'd MMM yyyy', { locale: es })}</span>}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1 shrink-0">
+                                                            {patient.phone && (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="ghost"
+                                                                    size="icon-sm"
+                                                                    onClick={() => handleSendTaskWhatsApp(task.text)}
+                                                                    title="Enviar recordatorio de tarea por WhatsApp"
+                                                                    className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 h-7 w-7"
+                                                                >
+                                                                    <MessageCircle className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            )}
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="icon-sm"
+                                                                onClick={() => handleDeleteTask(task.id)}
+                                                                title="Eliminar tarea"
+                                                                className="text-muted-foreground hover:text-destructive h-7 w-7"
+                                                            >
+                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </TabsContent>
 
                                 {/* Tab: Timeline (360 View) */}
@@ -952,6 +1197,18 @@ const PatientSlideOver = ({
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* Diálogo para Agendar Cita con el Paciente Preseleccionado */}
+            <NewAppointmentDialog
+                open={isBookingOpen}
+                onOpenChange={setIsBookingOpen}
+                initialPatient={patient}
+                onAppointmentAdded={() => {
+                    setIsBookingOpen(false);
+                    if (patient) fetchPatientData(patient);
+                    toast.success(`Cita agendada para ${patient?.name || 'el paciente'}`);
+                }}
+            />
         </>
     );
 };
