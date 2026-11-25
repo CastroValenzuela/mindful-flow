@@ -905,14 +905,16 @@ export default function NoteEditorSheet({
         {note && (
           <>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 hover:bg-slate-100 rounded-xl"
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-1.5 h-8 px-2.5 rounded-xl border-primary/30 text-primary font-bold text-xs hover:bg-primary/5 shadow-xs"
               onClick={handlePrintPDF}
               disabled={isPrinting}
-              title="Imprimir Nota Clínica (NOM-004)"
+              title="Imprimir Nota Clínica Conforme a NOM-004-SSA3"
             >
-              {isPrinting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4 text-slate-500" />}
+              {isPrinting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">Imprimir NOM-004</span>
             </Button>
             <Button
               variant="ghost"
@@ -1641,7 +1643,27 @@ export default function NoteEditorSheet({
   return (
     <>
       <Sheet open={isOpen} onOpenChange={(open) => !open && handleRequestClose()}>
-        <SheetContent className="w-full sm:max-w-2xl flex flex-col h-full bg-background border-l border-border p-0 shadow-elevated">
+        <SheetContent
+          className="w-full sm:max-w-2xl flex flex-col h-full bg-background border-l border-border p-0 shadow-elevated"
+          onPointerDownOutside={(e) => {
+            if (isDirty) {
+              e.preventDefault();
+              setShowDiscardConfirm(true);
+            }
+          }}
+          onInteractOutside={(e) => {
+            if (isDirty) {
+              e.preventDefault();
+              setShowDiscardConfirm(true);
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            if (isDirty) {
+              e.preventDefault();
+              setShowDiscardConfirm(true);
+            }
+          }}
+        >
           <SheetTitle className="sr-only">{note ? 'Edición de Nota' : 'Nueva Nota Clínica'}</SheetTitle>
           {editorHeader}
           {editorTabs}

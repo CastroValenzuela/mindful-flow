@@ -137,52 +137,121 @@ const PatientSlideOver = ({
     const [newTaskText, setNewTaskText] = useState('');
     const [newTaskDueDate, setNewTaskDueDate] = useState('');
 
-    const loadTasks = useCallback((patientId: string) => {
+    const loadTasks = useCallback(async (patientId: string) => {
         try {
+            // 1. Sincronización en la Nube (Supabase)
+            const { data, error } = await supabase
+                .from('patient_tasks')
+                .select('*')
+                .eq('patient_id', patientId)
+                .order('created_at', { ascending: false });
+
+            if (!error && data && data.length > 0) {
+                setTasks(data.map(t => ({
+                    id: t.id,
+                    text: t.text,
+                    completed: t.completed,
+                    dueDate: t.due_date || undefined,
+                    created_at: t.created_at
+                })));
+                return;
+            }
+
+            // 2. Migración automática si existían tareas previas en localStorage del navegador
             const saved = localStorage.getItem(`saudade_patient_tasks_${patientId}`);
             if (saved) {
-                setTasks(JSON.parse(saved));
-            } else {
-                setTasks([]);
+                const localTasks = JSON.parse(saved);
+                if (Array.isArray(localTasks) && localTasks.length > 0) {
+                    setTasks(localTasks);
+                    for (const lt of localTasks) {
+                        await supabase.from('patient_tasks').insert({
+                            patient_id: patientId,
+                            text: lt.text,
+                            completed: lt.completed || false,
+                            due_date: lt.dueDate ? new Date(lt.dueDate).toISOString() : null,
+                        });
+                    }
+                    localStorage.removeItem(`saudade_patient_tasks_${patientId}`);
+                    return;
+                }
             }
+            setTasks([]);
         } catch (e) {
+            console.error('Error cargando tareas en la nube:', e);
             setTasks([]);
         }
     }, []);
 
-    const saveTasks = (newTasks: typeof tasks) => {
-        setTasks(newTasks);
-        if (patient?.id) {
-            localStorage.setItem(`saudade_patient_tasks_${patient.id}`, JSON.stringify(newTasks));
+    const handleAddTask = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newTaskText.trim() || !patient?.id) return;
+        const tempId = crypto.randomUUID();
+        const text = newTaskText.trim();
+        const dueDate = newTaskDueDate || undefined;
+        const taskObj = {
+            id: tempId,
+            text,
+            completed: false,
+            dueDate,
+            created_at: new Date().toISOString()
+        };
+        // Optimistic UI update
+        setTasks(prev => [taskObj, ...prev]);
+        setNewTaskText('');
+        setNewTaskDueDate('');
+
+        try {
+            const { data, error } = await supabase
+                .from('patient_tasks')
+                .insert({
+                    patient_id: patient.id,
+                    text,
+                    completed: false,
+                    due_date: dueDate ? new Date(dueDate).toISOString() : null,
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            if (data) {
+                setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
+            }
+            toast.success('Tarea clínica sincronizada en la nube');
+        } catch (err: unknown) {
+            const error = err as Error;
+            console.error('Error al guardar tarea en Supabase:', error);
+            toast.error('Error al guardar en la nube: ' + error.message);
         }
     };
 
-    const handleAddTask = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!newTaskText.trim()) return;
-        const taskObj = {
-            id: crypto.randomUUID(),
-            text: newTaskText.trim(),
-            completed: false,
-            dueDate: newTaskDueDate || undefined,
-            created_at: new Date().toISOString()
-        };
-        const updated = [taskObj, ...tasks];
-        saveTasks(updated);
-        setNewTaskText('');
-        setNewTaskDueDate('');
-        toast.success('Tarea clínica agregada al expediente');
+    const handleToggleTask = async (taskId: string) => {
+        const target = tasks.find(t => t.id === taskId);
+        if (!target) return;
+        const newCompleted = !target.completed;
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: newCompleted } : t));
+        try {
+            await supabase
+                .from('patient_tasks')
+                .update({ completed: newCompleted, updated_at: new Date().toISOString() })
+                .eq('id', taskId);
+        } catch (err) {
+            console.error('Error al actualizar estado de tarea:', err);
+        }
     };
 
-    const handleToggleTask = (taskId: string) => {
-        const updated = tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t);
-        saveTasks(updated);
-    };
-
-    const handleDeleteTask = (taskId: string) => {
-        const updated = tasks.filter(t => t.id !== taskId);
-        saveTasks(updated);
-        toast.success('Tarea eliminada');
+    const handleDeleteTask = async (taskId: string) => {
+        setTasks(prev => prev.filter(t => t.id !== taskId));
+        try {
+            await supabase
+                .from('patient_tasks')
+                .delete()
+                .eq('id', taskId);
+            toast.success('Tarea eliminada de la nube');
+        } catch (err: unknown) {
+            const error = err as Error;
+            console.error('Error al eliminar tarea:', error);
+            toast.error('Error al eliminar tarea: ' + error.message);
+        }
     };
 
     const handleSendTaskWhatsApp = (taskText: string) => {
