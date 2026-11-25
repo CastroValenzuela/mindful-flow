@@ -119,29 +119,29 @@ const TodayAgenda = ({ appointments, onRefresh, hideHeader = false }: TodayAgend
                     </Badge>
                   )}
                   {appointment.paymentStatus === 'paid' ? (
-                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 font-medium">
-                      Pagado
+                    <Badge variant="outline" className="text-[11px] py-0.5 px-2 h-5 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 font-bold">
+                      ✓ Pagado
                     </Badge>
-                  ) : appointment.fee && appointment.fee > 0 ? (
-                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4 text-amber-600 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 font-medium">
-                      Cobro: ${appointment.fee}
+                  ) : (
+                    <Badge variant="outline" className="text-[11px] py-0.5 px-2 h-5 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 font-bold">
+                      {appointment.fee && appointment.fee > 0 ? `⚠ Debe sesión: $${appointment.fee}` : '⚠ Debe sesión (Sin cobrar)'}
                     </Badge>
-                  ) : null}
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">{appointment.type}</p>
               </div>
             </div>
 
             {/* Acciones y estado */}
-            <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-1.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-border/40 shrink-0">
+            <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-border/40 shrink-0 flex-wrap">
               {getStatusBadge(appointment.status)}
 
-              {/* Botón rápido Unirse si es online */}
-              {appointment.modality === 'online' && (appointment.meetingUrl || true) && (
+              {/* Botón directo Unirse a Videollamada si es virtual */}
+              {appointment.modality === 'online' && (
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-xs font-semibold gap-1 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-sky-950/50 border-sky-200 dark:border-sky-800"
+                  variant="default"
+                  className="h-8 px-2.5 text-xs font-bold gap-1.5 bg-primary text-white hover:bg-primary/90 rounded-xl shadow-xs"
                   onClick={() => {
                     if (appointment.meetingUrl) {
                       window.open(appointment.meetingUrl, '_blank');
@@ -151,22 +151,22 @@ const TodayAgenda = ({ appointments, onRefresh, hideHeader = false }: TodayAgend
                   }}
                   title="Unirse a la sesión de videollamada"
                 >
-                  <Video className="h-3 w-3" />
-                  <span className="hidden sm:inline">Unirse</span>
+                  <Video className="h-3.5 w-3.5" />
+                  <span>Unirse a Videollamada</span>
                 </Button>
               )}
 
-              {/* Botón rápido Marcar Asistencia si no está completada */}
+              {/* Botón de 1 clic para Marcar Asistencia sin abrir el modal de 12 campos */}
               {appointment.status !== 'completed' && appointment.status !== 'cancelled' && (
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                  variant="outline"
+                  className="h-8 px-2.5 text-xs font-bold gap-1.5 text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 rounded-xl transition-all"
                   onClick={() => handleMarkCompleted(appointment.id)}
-                  title="Marcar asistencia / completar"
+                  title="Marcar asistencia en 1 clic (sin abrir formulario)"
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span className="hidden md:inline text-[11px]">Asistió</span>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Marcar Asistencia</span>
                 </Button>
               )}
 
