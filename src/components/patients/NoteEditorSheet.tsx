@@ -4,6 +4,16 @@ import {
   SheetContent,
   SheetTitle,
 } from '@/components/ui/sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -206,6 +216,15 @@ export default function NoteEditorSheet({
   const [hasDraft, setHasDraft] = useState(false);
   const [draftData, setDraftData] = useState<any>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  const handleRequestClose = useCallback(() => {
+    if (isDirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  }, [isDirty, onClose]);
 
   // Interactive Diff states
   const [diffParts, setDiffParts] = useState<DiffPart[] | null>(null);
@@ -911,7 +930,7 @@ export default function NoteEditorSheet({
           variant="ghost"
           size="icon"
           className="h-8 w-8 hover:bg-slate-100 rounded-xl"
-          onClick={onClose}
+          onClick={handleRequestClose}
           title="Volver al expediente"
         >
           <X className="h-4 w-4 text-slate-500" />
@@ -1529,12 +1548,26 @@ export default function NoteEditorSheet({
             </>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {note && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePrintPDF}
+              disabled={isPrinting || isSaving}
+              className="rounded-xl h-10 px-3.5 text-xs font-semibold gap-1.5 border-border hover:bg-muted"
+              title="Imprimir Nota Clínica Conforme a NOM-004-SSA3"
+            >
+              {isPrinting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4 text-primary" />}
+              <span className="hidden sm:inline">Imprimir NOM-004</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
-            onClick={onClose}
+            onClick={handleRequestClose}
             disabled={isSaving}
-            className="rounded-xl h-10 px-5 text-slate-600 font-bold hover:bg-slate-100 transition-colors"
+            className="rounded-xl h-10 px-4 text-slate-600 font-bold hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
           >
             Cancelar
           </Button>
@@ -1542,7 +1575,7 @@ export default function NoteEditorSheet({
             variant="zen"
             onClick={handleSave}
             disabled={isSaving || isProcessingAI || !!diffParts}
-            className="rounded-xl h-10 px-6 font-bold shadow-md shadow-primary/15 transition-all"
+            className="rounded-xl h-10 px-5 font-bold shadow-md shadow-primary/15 transition-all"
           >
             {isSaving ? (
               <>
@@ -1561,27 +1594,61 @@ export default function NoteEditorSheet({
     </>
   );
 
+  const discardAlertDialog = (
+    <AlertDialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
+      <AlertDialogContent className="rounded-2xl max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-base font-bold text-foreground">
+            ¿Descartar los cambios no guardados?
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-sm text-muted-foreground">
+            Tienes cambios sin guardar en esta nota clínica. Si sales ahora, las modificaciones se perderán.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="gap-2 sm:gap-0">
+          <AlertDialogCancel className="rounded-xl font-medium">Continuar editando</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setIsDirty(false);
+              setShowDiscardConfirm(false);
+              onClose();
+            }}
+            className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-bold"
+          >
+            Descartar cambios
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   // ── Inline mode: render directly within the page ──
   if (inline) {
     if (!isOpen) return null;
     return (
-      <div className="flex flex-col bg-card rounded-2xl shadow-soft border border-border overflow-hidden min-h-[500px] animate-in fade-in slide-in-from-bottom-2 duration-300">
-        {editorHeader}
-        {editorTabs}
-        {editorBody}
-      </div>
+      <>
+        <div className="flex flex-col bg-card rounded-2xl shadow-soft border border-border overflow-hidden min-h-[500px] animate-in fade-in slide-in-from-bottom-2 duration-300">
+          {editorHeader}
+          {editorTabs}
+          {editorBody}
+        </div>
+        {discardAlertDialog}
+      </>
     );
   }
 
   // ── Sheet mode: render as overlay ──
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full sm:max-w-2xl flex flex-col h-full bg-background border-l border-border p-0 shadow-elevated">
-        <SheetTitle className="sr-only">{note ? 'Edición de Nota' : 'Nueva Nota Clínica'}</SheetTitle>
-        {editorHeader}
-        {editorTabs}
-        {editorBody}
-      </SheetContent>
-    </Sheet>
+    <>
+      <Sheet open={isOpen} onOpenChange={(open) => !open && handleRequestClose()}>
+        <SheetContent className="w-full sm:max-w-2xl flex flex-col h-full bg-background border-l border-border p-0 shadow-elevated">
+          <SheetTitle className="sr-only">{note ? 'Edición de Nota' : 'Nueva Nota Clínica'}</SheetTitle>
+          {editorHeader}
+          {editorTabs}
+          {editorBody}
+        </SheetContent>
+      </Sheet>
+      {discardAlertDialog}
+    </>
   );
 }

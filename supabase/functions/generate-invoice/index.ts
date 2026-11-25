@@ -48,12 +48,11 @@ serve(async (req) => {
     }
 
     // --- ACCIÓN: DESCARGAR PDF ---
-    if (action === 'download') {
+    if (action === 'download' || action === 'download_pdf') {
       if (!invoice_id) throw new Error('invoice_id requerido para esta acción');
       console.log('Downloading PDF for invoice:', invoice_id);
       const pdfStream = await facturapi.invoices.downloadPdf(invoice_id);
       
-      // En Deno, consumimos el stream para regresarlo como Response
       const chunks = [];
       for await (const chunk of pdfStream) {
         chunks.push(chunk);
@@ -65,6 +64,48 @@ serve(async (req) => {
           ...corsHeaders, 
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename="factura_${invoice_id}.pdf"`
+        },
+      });
+    }
+
+    // --- ACCIÓN: DESCARGAR XML SAT ---
+    if (action === 'download_xml') {
+      if (!invoice_id) throw new Error('invoice_id requerido para esta acción');
+      console.log('Downloading XML for invoice:', invoice_id);
+      const xmlStream = await facturapi.invoices.downloadXml(invoice_id);
+      
+      const chunks = [];
+      for await (const chunk of xmlStream) {
+        chunks.push(chunk);
+      }
+      const xml = new Uint8Array(await new Blob(chunks).arrayBuffer());
+
+      return new Response(xml, {
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Content-Disposition': `attachment; filename="factura_${invoice_id}.xml"`
+        },
+      });
+    }
+
+    // --- ACCIÓN: DESCARGAR PAQUETE COMPLETO (PDF + XML) ---
+    if (action === 'download_zip') {
+      if (!invoice_id) throw new Error('invoice_id requerido para esta acción');
+      console.log('Downloading ZIP for invoice:', invoice_id);
+      const zipStream = await facturapi.invoices.downloadZip(invoice_id);
+      
+      const chunks = [];
+      for await (const chunk of zipStream) {
+        chunks.push(chunk);
+      }
+      const zip = new Uint8Array(await new Blob(chunks).arrayBuffer());
+
+      return new Response(zip, {
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="factura_${invoice_id}.zip"`
         },
       });
     }
