@@ -207,7 +207,11 @@ const AIAssistant = () => {
         }
         
         if (final) {
-          setBulletPoints(prev => prev + (prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? ' ' : '') + final);
+          const trimmedFinal = final.trim();
+          setBulletPoints(prev => {
+            if (prev.endsWith(trimmedFinal)) return prev; // evitar duplicación inmediata
+            return prev + (prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? ' ' : '') + trimmedFinal;
+          });
         }
         setInterimTranscript(interim);
       };
