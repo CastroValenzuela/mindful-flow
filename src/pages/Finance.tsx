@@ -51,6 +51,8 @@ import {
   GripVertical,
   FileText,
   Download,
+  FileCode,
+  Archive,
   Mail,
   ExternalLink,
   Plus,
@@ -186,10 +188,10 @@ const Finance = () => {
   const toggle = (key: string) => setCollapsed(p => ({ ...p, [key]: !p[key] }));
   const [generatingInvoiceId, setGeneratingInvoiceId] = useState<string | null>(null);
   const [invoicingPayment, setInvoicingPayment] = useState<any | null>(null);
-  const [selectedTaxMode, setSelectedTaxMode] = useState<'8' | 'exento' | '16'>('8');
+  const [selectedTaxMode, setSelectedTaxMode] = useState<'8' | 'exento' | '16'>('exento');
   const [isNewIncomeOpen, setIsNewIncomeOpen] = useState(false);
 
-  const handleGenerateInvoice = async (paymentId: string, taxMode: '8' | 'exento' | '16' = '8') => {
+  const handleGenerateInvoice = async (paymentId: string, taxMode: '8' | 'exento' | '16' = 'exento') => {
     setGeneratingInvoiceId(paymentId);
     try {
       const { data, error: funcError } = await supabase.functions.invoke('generate-invoice', {
@@ -234,7 +236,7 @@ const Finance = () => {
 
   const handleDownloadDirect = async (invoiceId: string) => {
     try {
-      toast.loading('Preparando descarga...');
+      toast.loading('Preparando descarga de PDF...');
       const { data, error: funcError } = await supabase.functions.invoke('generate-invoice', {
         body: { invoice_id: invoiceId, action: 'download' }
       });
@@ -254,8 +256,63 @@ const Finance = () => {
       document.body.removeChild(a);
 
     } catch (err: unknown) {
+      toast.dismiss();
       const error = err as Error;
       toast.error(error.message || 'Error al descargar el archivo');
+    }
+  };
+
+  const handleDownloadXml = async (invoiceId: string) => {
+    try {
+      toast.loading('Descargando XML oficial SAT...');
+      const { data, error: funcError } = await supabase.functions.invoke('generate-invoice', {
+        body: { invoice_id: invoiceId, action: 'download_xml' }
+      });
+
+      toast.dismiss();
+      if (funcError) throw new Error(funcError.message);
+
+      const blob = new Blob([data], { type: 'application/xml;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `factura_${invoiceId}.xml`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('XML oficial del SAT descargado correctamente');
+    } catch (err: unknown) {
+      toast.dismiss();
+      const error = err as Error;
+      toast.error(error.message || 'Error al descargar el XML');
+    }
+  };
+
+  const handleDownloadZip = async (invoiceId: string) => {
+    try {
+      toast.loading('Preparando paquete fiscal (PDF + XML)...');
+      const { data, error: funcError } = await supabase.functions.invoke('generate-invoice', {
+        body: { invoice_id: invoiceId, action: 'download_zip' }
+      });
+
+      toast.dismiss();
+      if (funcError) throw new Error(funcError.message);
+
+      const blob = new Blob([data], { type: 'application/zip' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `factura_${invoiceId}_paquete.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('Paquete (PDF + XML) descargado correctamente');
+    } catch (err: unknown) {
+      toast.dismiss();
+      const error = err as Error;
+      toast.error(error.message || 'Error al descargar el paquete');
     }
   };
 
@@ -1097,10 +1154,18 @@ const Finance = () => {
                                               <ChevronDown className="h-3.5 w-3.5 opacity-50" />
                                             </Button>
                                           </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="end" className="w-48">
+                                          <DropdownMenuContent align="end" className="w-52">
                                             <DropdownMenuItem onClick={() => handleDownloadDirect(p.invoice_id!)} className="gap-2 cursor-pointer">
                                               <Download className="h-4 w-4" />
                                               Descargar PDF
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleDownloadXml(p.invoice_id!)} className="gap-2 cursor-pointer">
+                                              <FileCode className="h-4 w-4" />
+                                              Descargar XML (SAT)
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleDownloadZip(p.invoice_id!)} className="gap-2 cursor-pointer">
+                                              <Archive className="h-4 w-4" />
+                                              Descargar Paquete (PDF+XML)
                                             </DropdownMenuItem>
                                             <DropdownMenuItem onClick={() => handleSendEmail(p.invoice_id!)} className="gap-2 cursor-pointer">
                                               <Mail className="h-4 w-4" />
@@ -1217,7 +1282,7 @@ const Finance = () => {
                     <div className="text-xs space-y-0.5">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-foreground">Tasa 8% (Estímulo Fiscal Fronterizo)</span>
-                        <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary font-bold">Recomendado</Badge>
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground font-medium">Zona Fronteriza</Badge>
                       </div>
                       <p className="text-muted-foreground text-[11px]">Para prestadores de servicios en Región Fronteriza Norte y Sur.</p>
                     </div>
@@ -1237,7 +1302,10 @@ const Finance = () => {
                       {selectedTaxMode === 'exento' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
                     </div>
                     <div className="text-xs space-y-0.5">
-                      <span className="font-bold text-foreground">Exento de IVA (0% - Art. 15 Fracc. XIV LIVA)</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-foreground">Exento de IVA (0% - Art. 15 Fracc. XIV LIVA)</span>
+                        <Badge variant="secondary" className="text-[10px] bg-emerald-500/10 text-emerald-600 font-bold dark:text-emerald-400">Recomendado Psicología</Badge>
+                      </div>
                       <p className="text-muted-foreground text-[11px]">Servicios médicos y de psicología prestados por personas físicas con cédula profesional.</p>
                     </div>
                   </div>

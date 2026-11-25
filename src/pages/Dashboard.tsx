@@ -40,12 +40,17 @@ import { checkReactivations } from '@/lib/reactivationService';
 // ── Tipos locales ────────────────────────────────────────────────────────────
 interface DashboardAppointment {
   id: string;
+  patientId?: string;
   patientName: string;
   startTime: string;
   endTime: string;
   status: 'scheduled' | 'confirmed' | 'pending' | 'cancelled' | 'completed';
   type: string;
   phone?: string | null;
+  paymentStatus?: 'paid' | 'pending' | 'refunded';
+  fee?: number;
+  modality?: 'online' | 'in_person';
+  meetingUrl?: string | null;
 }
 
 interface DashboardNote {
@@ -138,7 +143,7 @@ const Dashboard = () => {
         supabase.from('patients').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id).gte('created_at', monthStart).lte('created_at', monthEnd).is('deleted_at', null),
         supabase.from('appointments').select('*').eq('organization_id', organization.id).gte('start_time', monthStart).lte('start_time', monthEnd),
         supabase.from('appointments').select('*').eq('organization_id', organization.id).gte('start_time', prevMonthStart).lte('start_time', prevMonthEnd),
-        supabase.from('appointments').select('id, patient_id, patient_name, start_time, end_time, status, type').eq('organization_id', organization.id).gte('start_time', todayStart).lte('start_time', todayEnd),
+        supabase.from('appointments').select('id, patient_id, patient_name, start_time, end_time, status, type, payment_status, fee, modality, location, meeting_url, phone').eq('organization_id', organization.id).gte('start_time', todayStart).lte('start_time', todayEnd),
         supabase.from('session_notes').select('id, patient_name, session_number, agenda, created_at').eq('organization_id', organization.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(3),
         supabase.from('appointments').select('*').eq('organization_id', organization.id).gte('start_time', startOfMonth(new Date(now.getFullYear(), now.getMonth() - 11, 1)).toISOString()).lte('start_time', monthEnd),
       ]);
@@ -198,11 +203,17 @@ const Dashboard = () => {
       // ── Agenda del día ────────────────────────────────────────────────────────
       setTodayAppts((todayData ?? []).map(a => ({
         id: a.id,
+        patientId: a.patient_id,
         patientName: a.patient_name ?? 'Paciente',
         startTime: a.start_time,
         endTime: a.end_time,
         status: (a.status || 'scheduled') as DashboardAppointment['status'],
         type: a.type ?? 'Consulta',
+        phone: a.phone ?? null,
+        paymentStatus: (a.payment_status || 'pending') as DashboardAppointment['paymentStatus'],
+        fee: a.fee ? Number(a.fee) : 0,
+        modality: (a.modality || 'in_person') as DashboardAppointment['modality'],
+        meetingUrl: a.meeting_url || null,
       })));
 
       // ── Notas recientes ───────────────────────────────────────────────────────
@@ -394,7 +405,7 @@ const Dashboard = () => {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <TodayAgenda appointments={todayAppts} />
+              <TodayAgenda appointments={todayAppts} onRefresh={fetchDashboardData} hideHeader />
             </div>
           </div>
 
