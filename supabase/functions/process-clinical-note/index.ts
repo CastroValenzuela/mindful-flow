@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { text, action, patient_context, messages } = await req.json();
+    const { text, action, patient_context, messages, image_url } = await req.json();
     const apiKey = Deno.env.get('GROQ_API_KEY');
 
     if (!apiKey) {
@@ -21,10 +21,39 @@ Deno.serve(async (req) => {
 
     let systemPrompt = '';
     let userPrompt = '';
+    let modelName = 'llama-3.3-70b-versatile';
+    let messagesToAI: any[] = [];
 
-    let messagesToAI = [];
+    if (action === 'transcribe_handwritten') {
+      modelName = 'llama-3.2-11b-vision-preview';
+      const imageUrl = image_url || text;
+      messagesToAI = [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Eres un asistente de psicología clínica experto en transcripción de notas manuscritas conforme a la NOM-004-SSA3-2012.
+Transcribe con precisión clínica los trazos y texto manuscrito de esta hoja de sesión.
+Contexto: ${patient_context || 'Nota clínica de sesión psicoterapéutica'}
 
-    if (action === 'generate_soap') {
+Estructura tu respuesta en texto limpio y formal:
+I. MOTIVO DE CONSULTA Y EXPLORACIÓN
+II. DESARROLLO Y CONTENIDO DE LA SESIÓN
+III. INTERVENCIONES Y REESTRUCTURACIÓN
+IV. IMPRESIÓN DIAGNÓSTICA
+V. PLAN TERAPÉUTICO Y TAREAS
+
+Interpreta con rigor clínico profesional los trazos y apuntes de la imagen.`
+            },
+            {
+              type: 'image_url',
+              image_url: { url: imageUrl }
+            }
+          ]
+        }
+      ];
+    } else if (action === 'generate_soap') {
       systemPrompt = `Eres un asistente de psicología clínica experto en el formato SOAP y la norma oficial mexicana NOM-024-SSA3-2012. 
       Tu objetivo es transformar notas rápidas o puntos clave dictados por el terapeuta en un reporte clínico estructurado, riguroso y profesional.
       
@@ -108,7 +137,7 @@ Deno.serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: modelName,
         messages: messagesToAI,
         temperature: 0.1,
         max_tokens: 2048,
@@ -128,6 +157,8 @@ Deno.serve(async (req) => {
     let result;
     if (action === 'generate_soap' || action === 'refine_note') {
       result = JSON.parse(content);
+    } else if (action === 'transcribe_handwritten') {
+      result = { report: content, reply: content, transcription: content };
     } else {
       result = { reply: content };
     }

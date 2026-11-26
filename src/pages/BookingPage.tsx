@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { format, isSameDay, addDays, startOfToday, parseISO, isBefore, startOfDay, endOfDay } from 'date-fns';
+import { format, isSameDay, addDays, startOfToday, parseISO, isBefore, isAfter, addMonths, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { getVisitorTimezone, getTimezoneFriendlyLabel, buildUTCFromClinicTime } from '@/lib/timezone';
 import { Loader2, ArrowLeft, ArrowRight, Clock, Calendar as CalendarIcon, User, CheckCircle2, LayoutGrid, DollarSign, BookOpen, ShieldCheck, Video, MapPin, Globe } from 'lucide-react';
@@ -306,6 +306,10 @@ const BookingPage = () => {
     if (!profile) return true;
     if (isBefore(date, startOfToday())) return true;
     
+    // Tope de temporalidad: máximo 60 días futuros (evita reservas a años infinitos)
+    const MAX_BOOKING_DAYS = 60;
+    if (isAfter(date, addDays(startOfToday(), MAX_BOOKING_DAYS))) return true;
+    
     // Check if day is active in settings
     const day = date.getDay();
     const isActivo = profile.horario_atencion?.dias?.[day]?.activo;
@@ -326,10 +330,10 @@ const BookingPage = () => {
     e.preventDefault();
     if (!profile || !selectedDate || !selectedTime) return;
 
-    if (modality === 'Presencial' && !location.trim()) {
-      toast.error('Por favor, ingresa la ubicación o consultorio.');
-      return;
-    }
+    // Ubicación fija de consultorio para presencial (no exige teclearla al paciente)
+    const effectiveLocation = modality === 'Presencial' 
+      ? (location || (profile as any)?.consultorio_address || (profile as any)?.location || 'Consultorio particular del especialista')
+      : null;
     // ANTI-SPAM 1: Honeypot (hidden field for bots)
     if (honeypot) {
       toast.success('¡Tu cita ha sido agendada con éxito!'); // Fake success to fool the bot
@@ -499,14 +503,14 @@ const BookingPage = () => {
           payment_status: 'pending',
           meeting_platform: finalPlatform,
           meeting_link: finalMeetLink,
-          notes: `Reservado desde Portal Público.\nServicio: ${selectedService?.name || 'No especificado'}\nEmail: ${patientInfo.email}\nTeléfono: ${patientInfo.phone}\nEdad: ${patientInfo.age}\nMotivo: ${patientInfo.reason}\nModalidad: ${modality}\nPlataforma/Ubicación: ${modality === 'Videollamada' ? finalPlatform : location}`,
+          notes: `Reservado desde Portal Público.\nServicio: ${selectedService?.name || 'No especificado'}\nEmail: ${patientInfo.email}\nTeléfono: ${patientInfo.phone}\nEdad: ${patientInfo.age || 'No especificada'}\nMotivo: ${patientInfo.reason || 'Seguimiento'}\nModalidad: ${modality}\nPlataforma/Ubicación: ${modality === 'Videollamada' ? finalPlatform : effectiveLocation}`,
           organization_id: profile.current_organization_id,
           patient_age: patientInfo.age ? parseInt(patientInfo.age) : null,
           reason_for_consultation: patientInfo.reason || null,
           service_id: selectedService?.id || null,
           booking_answers: Object.keys(bookingAnswers).length > 0 ? bookingAnswers : null,
           modality: modality === 'Videollamada' ? 'online' : 'presencial',
-          location: modality === 'Videollamada' ? null : location,
+          location: modality === 'Videollamada' ? null : effectiveLocation,
           commission_percentage: finalCommission,
           reschedule_policy_hours: finalReschedulePolicy,
         });
@@ -713,6 +717,7 @@ const BookingPage = () => {
                         setSelectedTime(null);
                       }}
                       disabled={isDateDisabled}
+                      toMonth={addMonths(new Date(), 2)}
                       className="rounded-xl border shadow-sm p-3 w-full max-w-full flex justify-center glass border-white/20"
                       classNames={{
                         day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
@@ -823,6 +828,37 @@ const BookingPage = () => {
                       placeholder="ana@ejemplo.com"
                     />
                   </div>
+                  {/* Tipo de sesión: Primera vez vs Subsecuente */}
+                  <div className="space-y-2">
+                    <Label>Tipo de sesión *</Label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSessionType('Primera vez')}
+                        className={cn(
+                          "flex items-center justify-center gap-2 h-10 rounded-xl border text-xs font-semibold transition-all shadow-xs",
+                          sessionType === 'Primera vez'
+                            ? "border-primary bg-primary/10 text-primary font-bold"
+                            : "border-border/60 bg-white/50 text-muted-foreground hover:bg-white"
+                        )}
+                      >
+                        Primera vez
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSessionType('Seguimiento')}
+                        className={cn(
+                          "flex items-center justify-center gap-2 h-10 rounded-xl border text-xs font-semibold transition-all shadow-xs",
+                          sessionType === 'Seguimiento'
+                            ? "border-primary bg-primary/10 text-primary font-bold"
+                            : "border-border/60 bg-white/50 text-muted-foreground hover:bg-white"
+                        )}
+                      >
+                        Cita subsecuente
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col sm:flex-row gap-3">
                     <div className="space-y-2 flex-1 min-w-0">
                       <Label htmlFor="phone">Teléfono / WhatsApp *</Label>
@@ -832,16 +868,18 @@ const BookingPage = () => {
                         onChange={(fullFormatted) => setPatientInfo({ ...patientInfo, phone: fullFormatted })}
                       />
                     </div>
-                    <div className="space-y-2 w-full sm:w-20 shrink-0">
-                      <Label htmlFor="age">Edad</Label>
-                      <Input 
-                        id="age" 
-                        type="number" 
-                        value={patientInfo.age} 
-                        onChange={e => setPatientInfo({...patientInfo, age: e.target.value})}
-                        placeholder="Ej. 35"
-                      />
-                    </div>
+                    {sessionType === 'Primera vez' && (
+                      <div className="space-y-2 w-full sm:w-24 shrink-0 animate-fade-in">
+                        <Label htmlFor="age">Edad</Label>
+                        <Input 
+                          id="age" 
+                          type="number" 
+                          value={patientInfo.age} 
+                          onChange={e => setPatientInfo({...patientInfo, age: e.target.value})}
+                          placeholder="Ej. 35"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2 mt-4">
@@ -930,28 +968,36 @@ const BookingPage = () => {
                   })()}
 
                   {modality === 'Presencial' && (
-                    <div className="space-y-2 animate-fade-in mt-4">
-                      <Label htmlFor="location">Ubicación / Consultorio *</Label>
-                      <Input 
-                        id="location" 
-                        required 
-                        value={location} 
-                        onChange={e => setLocation(e.target.value)}
-                        placeholder="Ej. Consultorio Norte, Calle Juárez #123"
-                      />
+                    <div className="space-y-2 animate-fade-in mt-4 p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+                      <div className="flex items-start gap-2.5">
+                        <MapPin className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div className="text-xs space-y-0.5">
+                          <span className="font-semibold text-foreground">Consultorio Presencial</span>
+                          <p className="text-muted-foreground">
+                            {(profile as any)?.consultorio_address || (profile as any)?.location || 'Consultorio particular del especialista (dirección enviada por WhatsApp/correo al confirmar)'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="reason">Motivo de consulta</Label>
-                    <textarea 
-                      id="reason" 
-                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      value={patientInfo.reason} 
-                      onChange={e => setPatientInfo({...patientInfo, reason: e.target.value})}
-                      placeholder="Cuéntanos brevemente el motivo de tu consulta"
-                    />
-                  </div>
+                  {sessionType === 'Primera vez' ? (
+                    <div className="space-y-2 animate-fade-in">
+                      <Label htmlFor="reason">Motivo de consulta</Label>
+                      <textarea 
+                        id="reason" 
+                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        value={patientInfo.reason} 
+                        onChange={e => setPatientInfo({...patientInfo, reason: e.target.value})}
+                        placeholder="Cuéntanos brevemente el motivo de tu consulta"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-xl border border-border/50 bg-muted/20 text-xs text-muted-foreground flex items-center gap-2 animate-fade-in">
+                      <span>🌿</span>
+                      <span>Sesión de seguimiento: edad y motivo omitidos para agilizar tu reserva.</span>
+                    </div>
+                  )}
 
                   {/* Dynamic Booking Questions */}
                   {bookingQuestions.length > 0 && (
