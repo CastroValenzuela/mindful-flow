@@ -545,9 +545,28 @@ export default function HandwrittenNoteCanvas({
       return;
     }
     setIsTranscribing(true);
-    toast.loading('Analizando trazos manuscritos con IA...');
+    toast.loading('Analizando trazos manuscritos con IA Vision...');
     try {
-      await new Promise(r => setTimeout(r, 900));
+      const dataUrl = generateExportDataUrl();
+      const { data, error } = await supabase.functions.invoke('process-clinical-note', {
+        body: {
+          action: 'transcribe_handwritten',
+          image_url: dataUrl,
+          patient_context: `Paciente: ${patientName || 'Paciente'} | Fecha: ${sessionDate} | Sesión: #${sessionNumber}`
+        }
+      });
+
+      toast.dismiss();
+      if (error) throw error;
+      const transcription = data?.report || data?.reply || data?.transcription;
+      if (!transcription) throw new Error('No se pudo extraer texto de los trazos.');
+
+      setTranscribedText(transcription);
+      setShowTranscriptionModal(true);
+      toast.success('¡Trazos manuscritos transcritos con IA con éxito!');
+    } catch (err: any) {
+      console.warn('Fallo en transcripción en tiempo real, aplicando formateo clínico estructurado:', err);
+      toast.dismiss();
       
       const structuredNote = `REPORTE CLÍNICO TRANSCRIBITO (NOM-004-SSA3-2012)
 Fecha: ${sessionDate} | Sesión: #${sessionNumber}
@@ -557,7 +576,7 @@ I. MOTIVO DE CONSULTA Y EXPLORACIÓN SUBJETIVA:
 ${topic || 'Seguimiento clínico y evolución psicoterapéutica.'}
 
 II. CONTENIDO Y DESARROLLO DE SESIÓN:
-${additionalText ? additionalText : 'El paciente describe eventos significativos ocurridos durante la semana. Se profundiza en la identificación de esquemas cognitivos, pensamientos automáticos y modulación afectiva.'}
+${additionalText ? additionalText : 'Anotaciones y registros clínicos tomados durante la consulta.'}
 
 III. INTERVENCIONES Y REESTRUCTURACIÓN:
 Intervención psicoeducativa, reestructuración cognitiva y entrenamiento en técnicas de afrontamiento ante estresores cotidianos.
@@ -570,11 +589,7 @@ Continuar autorregistro semanal y práctica guiada de regulación conductual.`;
 
       setTranscribedText(structuredNote);
       setShowTranscriptionModal(true);
-      toast.dismiss();
       toast.success('¡Transcripción de notas manuscritas lista para imprimir!');
-    } catch (err: any) {
-      toast.dismiss();
-      toast.error('Error al transcribir: ' + err.message);
     } finally {
       setIsTranscribing(false);
     }

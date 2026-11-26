@@ -405,7 +405,7 @@ const Dashboard = () => {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <TodayAgenda appointments={todayAppts} onRefresh={fetchDashboardData} hideHeader />
+              <TodayAgenda appointments={todayAppts} onRefresh={fetchAll} hideHeader />
             </div>
           </div>
 

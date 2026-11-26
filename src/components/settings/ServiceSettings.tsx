@@ -279,6 +279,7 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
     commission_percentage: null,
     reschedule_policy_hours: null
   });
+  const [priceInput, setPriceInput] = useState<string>('800');
 
   useEffect(() => {
     if (service) {
@@ -286,6 +287,7 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
         ...service,
         reschedule_policy_hours: service.reschedule_policy_hours !== undefined ? service.reschedule_policy_hours : null
       });
+      setPriceInput(String(service.price ?? 800));
     } else {
       setFormData({
         name: '',
@@ -298,6 +300,7 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
         commission_percentage: null,
         reschedule_policy_hours: null
       });
+      setPriceInput('800');
     }
   }, [service, open]);
 
@@ -367,16 +370,19 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
               <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Precio (MXN) *</Label>
               <div className="relative">
                 <Input 
-                  type="number" 
-                  value={formData.price === 0 ? '' : formData.price}
+                  type="text"
+                  inputMode="decimal"
+                  value={priceInput}
                   placeholder="0"
                   onChange={e => {
-                    const val = e.target.value;
-                    setFormData({ ...formData, price: val === '' ? ('' as any) : parseFloat(val) || '' as any });
+                    const raw = e.target.value.replace(/[^0-9.]/g, '');
+                    setPriceInput(raw);
                   }}
                   onBlur={() => {
-                    const v = parseFloat(String(formData.price));
-                    setFormData(prev => ({ ...prev, price: isNaN(v) ? 0 : Math.max(0, v) }));
+                    const parsed = parseFloat(priceInput);
+                    const safe = isNaN(parsed) ? 0 : Math.max(0, parsed);
+                    setPriceInput(String(safe));
+                    setFormData(prev => ({ ...prev, price: safe }));
                   }}
                   className="rounded-xl h-11 border-border/60 pl-10 font-medium"
                 />
@@ -483,8 +489,12 @@ const ServiceModal = ({ open, onOpenChange, service, onSave, isSaving }: {
           </Button>
           <Button 
             variant="zen" 
-            onClick={() => onSave(formData)} 
-            disabled={isSaving || !formData.name}
+            onClick={() => {
+              const parsed = parseFloat(priceInput);
+              const safePrice = isNaN(parsed) ? 0 : Math.max(0, parsed);
+              onSave({ ...formData, price: safePrice });
+            }} 
+            disabled={isSaving || !formData.name.trim()}
             className="rounded-xl h-11 px-8 font-bold gap-2 shadow-sm"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

@@ -1036,20 +1036,49 @@ const NewAppointmentDialog = ({
 
     const [isRequestingPayment, setIsRequestingPayment] = useState(false);
 
-    const handleCancelAppointment = async () => {
+    const handleCancelAppointment = async (cancelSeries: boolean = false, permanentDelete: boolean = false) => {
         if (!editingAppointment) return;
         setIsCancelling(true);
         try {
-            const { error } = await supabase
-                .from('appointments')
-                .update({ status: 'cancelled' })
-                .eq('id', editingAppointment.id);
-            if (error) throw error;
-            toast.success('Cita cancelada');
+            if (permanentDelete) {
+                if (cancelSeries && editingAppointment.recurrenceId) {
+                    const { error } = await supabase
+                        .from('appointments')
+                        .delete()
+                        .eq('recurrence_id', editingAppointment.recurrenceId)
+                        .gte('start_time', editingAppointment.startTime);
+                    if (error) throw error;
+                    toast.success('Serie de citas eliminada permanentemente');
+                } else {
+                    const { error } = await supabase
+                        .from('appointments')
+                        .delete()
+                        .eq('id', editingAppointment.id);
+                    if (error) throw error;
+                    toast.success('Cita eliminada permanentemente');
+                }
+            } else {
+                if (cancelSeries && editingAppointment.recurrenceId) {
+                    const { error } = await supabase
+                        .from('appointments')
+                        .update({ status: 'cancelled' })
+                        .eq('recurrence_id', editingAppointment.recurrenceId)
+                        .gte('start_time', editingAppointment.startTime);
+                    if (error) throw error;
+                    toast.success('Serie recurrente cancelada con éxito');
+                } else {
+                    const { error } = await supabase
+                        .from('appointments')
+                        .update({ status: 'cancelled' })
+                        .eq('id', editingAppointment.id);
+                    if (error) throw error;
+                    toast.success('Cita cancelada con éxito');
+                }
+            }
             onOpenChange(false);
             if (onAppointmentAdded) onAppointmentAdded();
         } catch (err: any) {
-            toast.error('Error al cancelar: ' + err.message);
+            toast.error('Error al procesar: ' + err.message);
         } finally {
             setIsCancelling(false);
             setConfirmCancel(false);
@@ -2027,20 +2056,74 @@ const NewAppointmentDialog = ({
                             {/* Cancelar cita (solo en modo edición y no solo lectura) */}
                             {isEditing && editingAppointment?.status !== 'cancelled' && !isReadOnly && (
                                 confirmCancel ? (
-                                    <div className="flex items-center gap-2 mr-auto">
-                                        <span className="text-sm text-muted-foreground">¿Confirmar cancelación?</span>
-                                        <Button
-                                            type="button"
-                                            variant="destructive"
-                                            size="sm"
-                                            onClick={handleCancelAppointment}
-                                            disabled={isCancelling}
-                                        >
-                                            {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Sí, cancelar'}
-                                        </Button>
-                                        <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmCancel(false)}>
-                                            No
-                                        </Button>
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mr-auto bg-destructive/5 p-2 rounded-xl border border-destructive/20">
+                                        <span className="text-xs font-semibold text-destructive">
+                                            {editingAppointment?.recurrenceId ? 'Cita recurrente:' : '¿Confirmar cancelación?'}
+                                        </span>
+                                        {editingAppointment?.recurrenceId ? (
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <Button
+                                                    type="button"
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="h-7 text-xs font-semibold"
+                                                    onClick={() => handleCancelAppointment(false, false)}
+                                                    disabled={isCancelling}
+                                                >
+                                                    {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Solo esta cita'}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="h-7 text-xs font-semibold"
+                                                    onClick={() => handleCancelAppointment(true, false)}
+                                                    disabled={isCancelling}
+                                                >
+                                                    {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Toda la serie'}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 text-xs text-destructive hover:bg-destructive/10 border-destructive/30"
+                                                    onClick={() => handleCancelAppointment(true, true)}
+                                                    disabled={isCancelling}
+                                                    title="Eliminar permanentemente de la base de datos"
+                                                >
+                                                    Eliminar serie
+                                                </Button>
+                                                <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setConfirmCancel(false)}>
+                                                    Volver
+                                                </Button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-1.5">
+                                                <Button
+                                                    type="button"
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="h-7 text-xs font-semibold"
+                                                    onClick={() => handleCancelAppointment(false, false)}
+                                                    disabled={isCancelling}
+                                                >
+                                                    {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Sí, cancelar'}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 text-xs text-destructive hover:bg-destructive/10 border-destructive/30"
+                                                    onClick={() => handleCancelAppointment(false, true)}
+                                                    disabled={isCancelling}
+                                                >
+                                                    Eliminar
+                                                </Button>
+                                                <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setConfirmCancel(false)}>
+                                                    Volver
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <Button
@@ -2050,7 +2133,7 @@ const NewAppointmentDialog = ({
                                         onClick={() => setConfirmCancel(true)}
                                     >
                                         <XCircle className="h-4 w-4" />
-                                        Cancelar cita
+                                        {editingAppointment?.recurrenceId ? 'Borrar / Cancelar recurrente' : 'Cancelar cita'}
                                     </Button>
                                 )
                             )}
